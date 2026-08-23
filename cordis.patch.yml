@@ -1,0 +1,5 @@
+# The single bundle row loads the host entry. The host entry owns the dispatch
+# service hook and keeps optional module mounts out of the runtime when disabled.
+- insert:
+    - id: ice-tools
+      name: dsh-ice-tools

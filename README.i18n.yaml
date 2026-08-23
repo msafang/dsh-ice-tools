@@ -1,0 +1,6 @@
+version: 1
+default: en
+entries:
+  - id: package-readme
+    en: README.md
+    zh: README.zh.md
