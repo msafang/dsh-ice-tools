@@ -1,4 +1,4 @@
-import type { IceContext } from '../dsh-adapter/index.ts'
+import type { Disposer, IceContext } from '../dsh-adapter/index.ts'
 
 export const MODULE_NAMES = [
   'settingsHub',
@@ -20,7 +20,7 @@ export const OPTIONAL_MODULE_NAMES = MODULE_NAMES.filter(
 
 export type EnabledModules = Record<ModuleName, boolean>
 export type OptionalDispatchResult = Record<OptionalModuleName, 'apply' | 'skipped'>
-export type ModuleApplier = (ctx: IceContext) => void
+export type ModuleApplier = (ctx: IceContext) => void | Disposer
 export type ModuleAppliers = Record<OptionalModuleName, ModuleApplier>
 
 export interface IceConfig {
@@ -44,6 +44,11 @@ export const DEFAULT_ENABLED: EnabledModules = {
   taskBoard: false,
 }
 
+export interface MountedDispatch {
+  readonly result: OptionalDispatchResult
+  readonly disposers: Array<Disposer>
+}
+
 export function normalizeEnabled(value: Partial<Record<ModuleName, unknown>> | undefined): EnabledModules {
   const normalized = { ...DEFAULT_ENABLED }
   for (const name of MODULE_NAMES) {
@@ -61,17 +66,19 @@ export function mount(
   ctx: IceContext,
   enabled: Partial<Record<ModuleName, boolean>>,
   appliers: ModuleAppliers,
-): OptionalDispatchResult {
+): MountedDispatch {
   const result = {} as OptionalDispatchResult
+  const disposers: Array<Disposer> = []
   for (const name of OPTIONAL_MODULE_NAMES) {
     if (enabled[name] === true) {
-      appliers[name](ctx)
+      const disposer = appliers[name](ctx)
+      if (typeof disposer === 'function') disposers.push(disposer)
       result[name] = 'apply'
     } else {
       result[name] = 'skipped'
     }
   }
-  return result
+  return { result, disposers }
 }
 
 /**
@@ -83,13 +90,27 @@ export function createDispatchService(
   source: ConfigSource,
   appliers: ModuleAppliers,
 ) {
+  const disposers: Array<Disposer> = []
+  const disposeAll = (): void => {
+    const current = disposers.splice(0)
+    for (let index = current.length - 1; index >= 0; index -= 1) current[index]()
+  }
+
+  const mountCurrent = (): MountedDispatch => {
+    disposeAll()
+    const mounted = mount(ctx, source.read().enabled, appliers)
+    disposers.push(...mounted.disposers)
+    return mounted
+  }
+
   const service = {
     readEnabled: () => source.read().enabled,
     setEnabled: (name: ModuleName, enabled: boolean) => {
       source.setEnabled(name, enabled)
     },
-    mount: () => mount(ctx, source.read().enabled, appliers),
-    tick: () => mount(ctx, source.read().enabled, appliers),
+    mount: mountCurrent,
+    tick: mountCurrent,
+    disposeAll,
   }
   return service
 }

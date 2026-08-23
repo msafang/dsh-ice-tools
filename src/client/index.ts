@@ -1,4 +1,5 @@
-import type { IceContext } from '../core/dsh-adapter/index.ts'
+import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Disposer, DispatchClientService } from '../core/dsh-adapter/index.ts'
 import { DEFAULT_ENABLED, OPTIONAL_MODULE_NAMES, type EnabledModules, type ModuleName } from '../core/dispatch/index.ts'
 import { mount as mountChatRecovery } from '../modules/chat-recovery/client.ts'
 import { mount as mountDesktopLauncher } from '../modules/desktop-launcher/client.ts'
@@ -10,7 +11,9 @@ import { mount as mountSkillExplorer } from '../modules/skill-explorer/client.ts
 import { mount as mountTaskBoard } from '../modules/task-board/client.ts'
 import { mount as mountSettingsHub } from '../modules/settings-hub/client.ts'
 
-type ClientMount = (ctx: IceContext) => unknown
+export const inject = ['slots', 'locale', 'settingsScope', 'connection'] as const
+
+type ClientMount = (ctx: ClientContext) => void | Disposer
 
 const CLIENT_MOUNTS: Record<ModuleName, ClientMount> = {
   settingsHub: mountSettingsHub,
@@ -24,30 +27,26 @@ const CLIENT_MOUNTS: Record<ModuleName, ClientMount> = {
   taskBoard: mountTaskBoard,
 }
 
-export interface ClientMountResult {
-  readonly mounted: ModuleName[]
-  readonly skipped: ModuleName[]
-  readonly settingsCard?: unknown
+function disposeAll(disposers: readonly Disposer[]): void {
+  for (let index = disposers.length - 1; index >= 0; index -= 1) disposers[index]()
 }
 
-export function mount(ctx: IceContext, input?: Partial<EnabledModules>): ClientMountResult {
-  const serviceEnabled = ctx.services?.iceToolsDispatch?.readEnabled?.()
-  const enabled = { ...DEFAULT_ENABLED, ...serviceEnabled, ...input }
-  const mounted: ModuleName[] = []
-  const skipped: ModuleName[] = []
-  const settingsCard = CLIENT_MOUNTS.settingsHub(ctx)
-  mounted.push('settingsHub')
+export function apply(ctx: ClientContext): void {
+  ctx.effect(() => {
+    const service = ctx.get('iceToolsDispatch') as DispatchClientService | undefined
+    const enabled: EnabledModules = { ...DEFAULT_ENABLED, ...service?.readEnabled?.() }
+    const disposers: Disposer[] = []
+    const settingsDisposer = CLIENT_MOUNTS.settingsHub(ctx)
+    if (typeof settingsDisposer === 'function') disposers.push(settingsDisposer)
 
-  for (const name of OPTIONAL_MODULE_NAMES) {
-    if (enabled[name] === true) {
-      CLIENT_MOUNTS[name](ctx)
-      mounted.push(name)
-    } else {
-      skipped.push(name)
+    for (const name of OPTIONAL_MODULE_NAMES) {
+      if (enabled[name] !== true) continue
+      const disposer = CLIENT_MOUNTS[name](ctx)
+      if (typeof disposer === 'function') disposers.push(disposer)
     }
-  }
 
-  return { mounted, skipped, settingsCard }
+    return () => disposeAll(disposers)
+  }, 'dsh-ice-tools client mounts')
 }
 
 export { enableSettingsCard, renderSettingsCard } from '../modules/settings-hub/client.ts'

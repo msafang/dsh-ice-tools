@@ -33,15 +33,15 @@ allowBuilds:
 
 | 模块 | 当前状态 |
 | --- | --- |
-| settingsHub | 已实现设置区和开关卡片 |
-| pluginManager | Stub |
-| chatRecovery | Stub |
-| desktopLauncher | Stub |
-| doctor | Stub |
-| sessionId | Stub |
-| skillExplorer | Stub |
-| gitGraph | Stub |
-| taskBoard | Stub |
+| 设置中心 (settingsHub) | 已实现设置区和开关卡片 |
+| 插件管理 (pluginManager) | Stub |
+| 对话恢复 (chatRecovery) | Stub |
+| 桌面启动器 (desktopLauncher) | Stub |
+| 诊断工具 (doctor) | Stub |
+| 会话 ID (sessionId) | Stub |
+| 技能浏览器 (skillExplorer) | Stub |
+| Git 图谱 (gitGraph) | Stub |
+| 任务看板 (taskBoard) | Stub |
 
 ## 许可证
 

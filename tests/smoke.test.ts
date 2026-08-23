@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { IceContext, SettingsSectionOptions } from '../src/core/dsh-adapter/index.ts'
+import type { IceContext } from '../src/core/dsh-adapter/index.ts'
 import { MODULE_NAMES, OPTIONAL_MODULE_NAMES, mount, type ModuleAppliers } from '../src/core/dispatch/index.ts'
 import { en } from '../src/i18n/en.ts'
 import { zh } from '../src/i18n/zh.ts'
@@ -12,9 +12,9 @@ describe('dsh-ice-tools smoke contracts', () => {
     const appliers = Object.fromEntries(
       OPTIONAL_MODULE_NAMES.map((name) => [name, () => calls.push(name)]),
     ) as unknown as ModuleAppliers
-    const result = mount({} as IceContext, { settingsHub: true, sessionId: true }, appliers)
+    const mounted = mount({} as IceContext, { settingsHub: true, sessionId: true }, appliers)
 
-    expect(result).toEqual({
+    expect(mounted.result).toEqual({
       pluginManager: 'skipped',
       chatRecovery: 'skipped',
       desktopLauncher: 'skipped',
@@ -24,24 +24,31 @@ describe('dsh-ice-tools smoke contracts', () => {
       gitGraph: 'skipped',
       taskBoard: 'skipped',
     })
+    expect(mounted.disposers).toEqual([])
     expect(calls).toEqual(['sessionId'])
   })
 
   it('settingsHub registers one section and exposes nine bilingual toggles', () => {
-    const registered: SettingsSectionOptions[] = []
-    const ctx: IceContext = {
-      services: {
-        settings: {
-          installSettingsSection: (options) => {
-            registered.push(options)
-          },
-        },
-      },
-    }
+    const registered: Array<{ namespace: string; schema: unknown; defaults: unknown; hooks: unknown }> = []
+    const ctx = {
+      get: (name: string) => name === 'settings'
+        ? {
+            installSettingsSection: (
+              _ctx: unknown,
+              namespace: string,
+              schema: unknown,
+              defaults: unknown,
+              hooks: unknown,
+            ) => {
+              registered.push({ namespace, schema, defaults, hooks })
+            },
+          }
+        : undefined,
+    } as unknown as IceContext
 
     applySettingsHub(ctx)
     expect(registered).toHaveLength(1)
-    expect(registered[0]).toMatchObject({ id: 'ice-tools', order: 50, label: { zh: 'ICE 工具', en: 'ICE Tools' } })
+    expect(registered[0]).toMatchObject({ namespace: 'ice-tools' })
 
     const toggles = enableSettingsCard({ enabled: { sessionId: true } })
     expect(toggles).toHaveLength(9)

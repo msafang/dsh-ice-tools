@@ -24,28 +24,28 @@ const DEFAULT_ENABLED = {
 };
 //#endregion
 //#region src/modules/chat-recovery/client.ts
-const mount$9 = () => {};
-//#endregion
-//#region src/modules/desktop-launcher/client.ts
 const mount$8 = () => {};
 //#endregion
-//#region src/modules/doctor/client.ts
+//#region src/modules/desktop-launcher/client.ts
 const mount$7 = () => {};
 //#endregion
-//#region src/modules/git-graph/client.ts
+//#region src/modules/doctor/client.ts
 const mount$6 = () => {};
 //#endregion
-//#region src/modules/plugin-manager/client.ts
+//#region src/modules/git-graph/client.ts
 const mount$5 = () => {};
 //#endregion
-//#region src/modules/session-id/client.ts
+//#region src/modules/plugin-manager/client.ts
 const mount$4 = () => {};
 //#endregion
-//#region src/modules/skill-explorer/client.ts
+//#region src/modules/session-id/client.ts
 const mount$3 = () => {};
 //#endregion
-//#region src/modules/task-board/client.ts
+//#region src/modules/skill-explorer/client.ts
 const mount$2 = () => {};
+//#endregion
+//#region src/modules/task-board/client.ts
+const mount$1 = () => {};
 //#endregion
 //#region src/i18n/en.ts
 const en = { modules: {
@@ -164,51 +164,72 @@ function renderSettingsCard(props = {}) {
 		}
 	};
 }
-/** Browser mount shim; DSH can render the returned element or register it in the settings slot. */
-function mount$1(ctx) {
-	const service = ctx.services?.iceToolsDispatch;
+/** Register the settings card in the upstream keyed plugin-item slot. */
+function mount(ctx) {
+	const service = ctx.get("iceToolsDispatch");
+	const configuredEnabled = ctx.settingsScope.bind({ namespace: "ice-tools" }).getSnapshot().value?.enabled;
 	const card = renderSettingsCard({
-		enabled: service?.readEnabled?.(),
+		enabled: configuredEnabled ?? service?.readEnabled?.(),
 		onToggle: (name, enabled) => service?.setEnabled?.(name, enabled)
 	});
-	ctx.slots?.settings?.register?.(card);
-	return card;
+	const localeDisposer = ctx.locale.register("ice-tools", {
+		zh,
+		en
+	});
+	ctx.slots.inject("web-ui.plugin.item", () => ctx.slots.register({
+		name: "web-ui.plugin.item",
+		key: "ice-tools",
+		locale: "ice-tools",
+		inject: () => ({ card })
+	}, (() => card)));
+	let disposed = false;
+	return () => {
+		if (disposed) return;
+		disposed = true;
+		if (typeof localeDisposer === "function") localeDisposer();
+	};
 }
 //#endregion
 //#region src/client/index.ts
+const inject = [
+	"slots",
+	"locale",
+	"settingsScope",
+	"connection"
+];
 const CLIENT_MOUNTS = {
-	settingsHub: mount$1,
-	pluginManager: mount$5,
-	chatRecovery: mount$9,
-	desktopLauncher: mount$8,
-	doctor: mount$7,
-	sessionId: mount$4,
-	skillExplorer: mount$3,
-	gitGraph: mount$6,
-	taskBoard: mount$2
+	settingsHub: mount,
+	pluginManager: mount$4,
+	chatRecovery: mount$8,
+	desktopLauncher: mount$7,
+	doctor: mount$6,
+	sessionId: mount$3,
+	skillExplorer: mount$2,
+	gitGraph: mount$5,
+	taskBoard: mount$1
 };
-function mount(ctx, input) {
-	const serviceEnabled = ctx.services?.iceToolsDispatch?.readEnabled?.();
-	const enabled = {
-		...DEFAULT_ENABLED,
-		...serviceEnabled,
-		...input
-	};
-	const mounted = [];
-	const skipped = [];
-	const settingsCard = CLIENT_MOUNTS.settingsHub(ctx);
-	mounted.push("settingsHub");
-	for (const name of OPTIONAL_MODULE_NAMES) if (enabled[name] === true) {
-		CLIENT_MOUNTS[name](ctx);
-		mounted.push(name);
-	} else skipped.push(name);
-	return {
-		mounted,
-		skipped,
-		settingsCard
-	};
+function disposeAll(disposers) {
+	for (let index = disposers.length - 1; index >= 0; index -= 1) disposers[index]();
+}
+function apply(ctx) {
+	ctx.effect(() => {
+		const service = ctx.get("iceToolsDispatch");
+		const enabled = {
+			...DEFAULT_ENABLED,
+			...service?.readEnabled?.()
+		};
+		const disposers = [];
+		const settingsDisposer = CLIENT_MOUNTS.settingsHub(ctx);
+		if (typeof settingsDisposer === "function") disposers.push(settingsDisposer);
+		for (const name of OPTIONAL_MODULE_NAMES) {
+			if (enabled[name] !== true) continue;
+			const disposer = CLIENT_MOUNTS[name](ctx);
+			if (typeof disposer === "function") disposers.push(disposer);
+		}
+		return () => disposeAll(disposers);
+	}, "dsh-ice-tools client mounts");
 }
 //#endregion
-export { enableSettingsCard, mount, renderSettingsCard };
+export { apply, enableSettingsCard, inject, renderSettingsCard };
 
 //# sourceMappingURL=client.js.map

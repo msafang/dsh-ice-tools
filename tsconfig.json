@@ -13,6 +13,7 @@
   "include": [
     "shared/**/*.ts",
     "src/**/*.ts",
+    "src/**/*.d.ts",
     "tests/**/*.ts",
     "tsdown.config.ts"
   ]

@@ -32,7 +32,7 @@ export function clientBundle(id: string, hostEntries: readonly string[]): UserCo
       sourcemap: true,
       clean: false,
       fixedExtension: false,
-      external: [...PLATFORM_MODULES],
+      deps: { neverBundle: [...PLATFORM_MODULES] },
       plugins: [
         {
           name: 'dsh-ice-tools-client-purity',
