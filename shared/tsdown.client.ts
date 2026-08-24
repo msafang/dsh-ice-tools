@@ -6,6 +6,12 @@ import { PLATFORM_MODULES } from './web-platform.ts'
  * emitted separately so Node file access cannot enter the browser artifact.
  * The purity plugin rejects any browser value import from @deepseek-ai/* that
  * is not in the frozen platform seed table. Type-only imports are erased.
+ *
+ * The browser entry is emitted as CJS wrapped by `window.__ModuleLoader__.load
+ * ({ id, factory })`, mirroring the contract used by the official harness
+ * client bundles (see upstream packages/client/tsdown.client.ts). The
+ * module loader calls the factory with its own `require`, which is how the
+ * browser resolves Cordis DI identities from the loader module table.
  */
 export function clientBundle(id: string, hostEntries: readonly string[]): UserConfig[] {
   return [
@@ -25,7 +31,7 @@ export function clientBundle(id: string, hostEntries: readonly string[]): UserCo
       name: `${id}/client`,
       entry: { client: 'src/client/index.ts' },
       outDir: 'dist',
-      format: 'esm',
+      format: 'cjs',
       platform: 'browser',
       target: 'es2022',
       dts: false,
@@ -45,6 +51,12 @@ export function clientBundle(id: string, hostEntries: readonly string[]): UserCo
           },
         },
       ],
+      outputOptions: {
+        entryFileNames: 'client.js',
+        banner: `window.__ModuleLoader__.load({ id: ${JSON.stringify(id)}, factory: (require) => {`,
+        intro: 'var module = { exports: {} }; var exports = module.exports;',
+        footer: 'return module.exports; } });',
+      },
     },
   ]
 }
