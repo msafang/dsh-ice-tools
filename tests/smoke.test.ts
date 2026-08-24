@@ -1,33 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import type { IceContext } from '../src/core/dsh-adapter/index.ts'
-import { MODULE_NAMES, OPTIONAL_MODULE_NAMES, mount, type ModuleAppliers } from '../src/core/dispatch/index.ts'
+import type { HostContext } from '../src/core/dsh-adapter/index.ts'
+import { MODULE_NAMES } from '../src/core/dispatch/index.ts'
 import { en } from '../src/i18n/en.ts'
 import { zh } from '../src/i18n/zh.ts'
 import { apply as applySettingsHub } from '../src/modules/settings-hub/index.ts'
 import { enableSettingsCard, renderSettingsCard } from '../src/modules/settings-hub/client.ts'
 
 describe('dsh-ice-tools smoke contracts', () => {
-  it('dispatch mounts only enabled optional modules', () => {
-    const calls: string[] = []
-    const appliers = Object.fromEntries(
-      OPTIONAL_MODULE_NAMES.map((name) => [name, () => calls.push(name)]),
-    ) as unknown as ModuleAppliers
-    const mounted = mount({} as IceContext, { settingsHub: true, sessionId: true }, appliers)
-
-    expect(mounted.result).toEqual({
-      pluginManager: 'skipped',
-      chatRecovery: 'skipped',
-      desktopLauncher: 'skipped',
-      doctor: 'skipped',
-      sessionId: 'apply',
-      skillExplorer: 'skipped',
-      gitGraph: 'skipped',
-      taskBoard: 'skipped',
-    })
-    expect(mounted.disposers).toEqual([])
-    expect(calls).toEqual(['sessionId'])
-  })
-
   it('settingsHub registers one section and exposes nine bilingual toggles', () => {
     const registered: Array<{ ns: string; schema: (value: unknown) => unknown; defaults: unknown }> = []
     const ctx = {
@@ -46,7 +25,7 @@ describe('dsh-ice-tools smoke contracts', () => {
             },
           }
         : undefined,
-    } as unknown as IceContext
+    } as unknown as HostContext
 
     applySettingsHub(ctx)
     expect(registered).toHaveLength(1)

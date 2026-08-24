@@ -1,65 +1,22 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { Disposer } from './core/dsh-adapter/index.ts'
-import { ConfigStore } from './core/config-store/index.ts'
-import {
-  createDispatchService,
-  type ModuleAppliers,
-  type OptionalModuleName,
-  type OptionalDispatchResult,
-} from './core/dispatch/index.ts'
-import { apply as applyChatRecovery } from './modules/chat-recovery/index.ts'
-import { apply as applyDesktopLauncher } from './modules/desktop-launcher/index.ts'
-import { apply as applyDoctor } from './modules/doctor/index.ts'
-import { apply as applyGitGraph } from './modules/git-graph/index.ts'
-import { apply as applyPluginManager } from './modules/plugin-manager/index.ts'
-import { apply as applySessionId } from './modules/session-id/index.ts'
-import { apply as applySkillExplorer } from './modules/skill-explorer/index.ts'
-import { apply as applyTaskBoard } from './modules/task-board/index.ts'
 import { apply as applySettingsHub } from './modules/settings-hub/index.ts'
 
 export const name = 'dsh-ice-tools'
 export const stubOnly = false
 export const inject = ['settings'] as const
 
-const OPTIONAL_APPLIERS: ModuleAppliers = {
-  pluginManager: applyPluginManager,
-  chatRecovery: applyChatRecovery,
-  desktopLauncher: applyDesktopLauncher,
-  doctor: applyDoctor,
-  sessionId: applySessionId,
-  skillExplorer: applySkillExplorer,
-  gitGraph: applyGitGraph,
-  taskBoard: applyTaskBoard,
-}
-
-export function apply(ctx: Context): OptionalDispatchResult {
+/**
+ * Host-side apply: registers the `ice-tools` settings namespace and nothing
+ * else. Optional modules previously lived behind a runtime dispatch service;
+ * that layer has been removed. Each module's host apply is now registered
+ * unconditionally when its module page exists (currently only settingsHub),
+ * and optional UI toggles are gated by the settings scope on the client.
+ */
+export function apply(ctx: Context): void {
   const settingsDisposer = applySettingsHub(ctx)
-  const store = new ConfigStore(ctx.get('homeDir') as string | undefined)
-  const dispatch = createDispatchService(ctx, store, OPTIONAL_APPLIERS)
-  const unprovide = () => {
-    ctx.set('iceToolsDispatch', undefined)
-  }
   // Locale dictionaries are owned by the client half: see src/client/index.ts.
   // The host fiber has no `locale` service, and the only consumer of the i18n
-  // copy is the settings UI rendered in the browser. Reading `locale` here
-  // would force the host bundle to wait on a service that the host chain
-  // never provides.
-  const mounted = dispatch.mount()
-  const cleanup: Disposer[] = [
-    settingsDisposer,
-    dispatch.disposeAll,
-    () => {
-      void unprovide()
-    },
-  ]
-
-  ctx.effect(() => {
-    return () => {
-      for (let index = cleanup.length - 1; index >= 0; index -= 1) cleanup[index]()
-    }
-  }, 'dsh-ice-tools host cleanup')
-
-  return mounted.result
+  // copy is the settings UI rendered in the browser.
+  ctx.effect((): Disposer => settingsDisposer, 'dsh-ice-tools host cleanup')
 }
-
-export type { OptionalModuleName }

@@ -1,32 +1,28 @@
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
-import type { Disposer, DispatchClientService } from '../core/dsh-adapter/index.ts'
-import { DEFAULT_ENABLED, OPTIONAL_MODULE_NAMES, type EnabledModules, type ModuleName } from '../core/dispatch/index.ts'
+import type { Disposer } from '../core/dsh-adapter/index.ts'
+import {
+  DEFAULT_ENABLED,
+  MODULE_NAMES,
+  normalizeEnabled,
+  type EnabledModules,
+  type IceConfig,
+  type ModuleName,
+} from '../core/dispatch/index.ts'
 import { en } from '../i18n/en.ts'
 import { zh } from '../i18n/zh.ts'
-import { mount as mountChatRecovery } from '../modules/chat-recovery/client.ts'
-import { mount as mountDesktopLauncher } from '../modules/desktop-launcher/client.ts'
-import { mount as mountDoctor } from '../modules/doctor/client.ts'
-import { mount as mountGitGraph } from '../modules/git-graph/client.ts'
-import { mount as mountPluginManager } from '../modules/plugin-manager/client.ts'
-import { mount as mountSessionId } from '../modules/session-id/client.ts'
-import { mount as mountSkillExplorer } from '../modules/skill-explorer/client.ts'
-import { mount as mountTaskBoard } from '../modules/task-board/client.ts'
 import { mount as mountSettingsHub } from '../modules/settings-hub/client.ts'
 
 export const inject = ['slots', 'locale', 'settingsScope', 'connection'] as const
 
 type ClientMount = (ctx: ClientContext) => void | Disposer
 
-const CLIENT_MOUNTS: Record<ModuleName, ClientMount> = {
+/**
+ * Client mounts for the optional modules. Modules without a `mount` yet are
+ * stubs; they are listed here so that toggling their enable key takes effect
+ * the next time the settings scope publishes.
+ */
+const CLIENT_MOUNTS: Partial<Record<ModuleName, ClientMount>> = {
   settingsHub: mountSettingsHub,
-  pluginManager: mountPluginManager,
-  chatRecovery: mountChatRecovery,
-  desktopLauncher: mountDesktopLauncher,
-  doctor: mountDoctor,
-  sessionId: mountSessionId,
-  skillExplorer: mountSkillExplorer,
-  gitGraph: mountGitGraph,
-  taskBoard: mountTaskBoard,
 }
 
 function disposeAll(disposers: readonly Disposer[]): void {
@@ -43,6 +39,11 @@ interface LocaleRegister {
   register(namespace: string, dictionaries: { readonly zh: unknown; readonly en: unknown }): () => void
 }
 
+interface SettingsScopeLike {
+  getSnapshot(): { readonly value: IceConfig | undefined }
+  subscribe(listener: () => void): () => void
+}
+
 export function apply(ctx: ClientContext): void {
   // Register the bilingual dictionaries first so module-level mounts that ask
   // for translation keys can resolve them on first render. The disposer is
@@ -53,20 +54,39 @@ export function apply(ctx: ClientContext): void {
     return typeof disposer === 'function' ? disposer : undefined
   }, 'dsh-ice-tools client locale register')
 
+  // Mount modules based on the settings scope. The scope is durable; every
+  // change to `enabled.<module>` re-drives this effect through the subscriber.
   ctx.effect(() => {
-    const service = ctx.get('iceToolsDispatch') as DispatchClientService | undefined
-    const enabled: EnabledModules = { ...DEFAULT_ENABLED, ...service?.readEnabled?.() }
-    const disposers: Disposer[] = []
-    const settingsDisposer = CLIENT_MOUNTS.settingsHub(ctx)
-    if (typeof settingsDisposer === 'function') disposers.push(settingsDisposer)
+    const scope = (ctx as unknown as { settingsScope: { bind(spec: { namespace: string; decode(s: unknown): IceConfig | undefined }): SettingsScopeLike } }).settingsScope
+    const bound = scope.bind({
+      namespace: 'ice-tools',
+      decode: (section: unknown): IceConfig | undefined => {
+        if (typeof section !== 'object' || section === null) return undefined
+        return { enabled: normalizeEnabled((section as Partial<IceConfig>).enabled) }
+      },
+    })
 
-    for (const name of OPTIONAL_MODULE_NAMES) {
-      if (enabled[name] !== true) continue
-      const disposer = CLIENT_MOUNTS[name](ctx)
-      if (typeof disposer === 'function') disposers.push(disposer)
+    let disposers: Disposer[] = []
+    const remount = (): void => {
+      disposeAll(disposers)
+      const next: EnabledModules = { ...DEFAULT_ENABLED, ...(bound.getSnapshot().value?.enabled ?? {}) }
+      const fresh: Disposer[] = []
+      for (const name of MODULE_NAMES) {
+        if (!next[name]) continue
+        const mount = CLIENT_MOUNTS[name]
+        if (mount === undefined) continue
+        const disposer = mount(ctx)
+        if (typeof disposer === 'function') fresh.push(disposer)
+      }
+      disposers = fresh
     }
 
-    return () => disposeAll(disposers)
+    remount()
+    const off = bound.subscribe(remount)
+    return () => {
+      off()
+      disposeAll(disposers)
+    }
   }, 'dsh-ice-tools client mounts')
 }
 

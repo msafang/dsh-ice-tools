@@ -1,4 +1,10 @@
-import type { Disposer, IceContext } from '../dsh-adapter/index.ts'
+/**
+ * Module identity and default enable state. This file used to also host a
+ * dispatch service that gated optional module mounts behind a runtime
+ * file-backed toggle. That layer has been removed: module mounting is now
+ * driven by the `ice-tools` settings scope on the client, and the host half
+ * only registers the settings namespace itself.
+ */
 
 export const MODULE_NAMES = [
   'settingsHub',
@@ -13,23 +19,11 @@ export const MODULE_NAMES = [
 ] as const
 
 export type ModuleName = (typeof MODULE_NAMES)[number]
-export type OptionalModuleName = Exclude<ModuleName, 'settingsHub'>
-export const OPTIONAL_MODULE_NAMES = MODULE_NAMES.filter(
-  (name): name is OptionalModuleName => name !== 'settingsHub',
-)
 
 export type EnabledModules = Record<ModuleName, boolean>
-export type OptionalDispatchResult = Record<OptionalModuleName, 'apply' | 'skipped'>
-export type ModuleApplier = (ctx: IceContext) => void | Disposer
-export type ModuleAppliers = Record<OptionalModuleName, ModuleApplier>
 
 export interface IceConfig {
   readonly enabled: EnabledModules
-}
-
-export interface ConfigSource {
-  read(): IceConfig
-  setEnabled(name: ModuleName, enabled: boolean): IceConfig
 }
 
 export const DEFAULT_ENABLED: EnabledModules = {
@@ -44,11 +38,6 @@ export const DEFAULT_ENABLED: EnabledModules = {
   taskBoard: false,
 }
 
-export interface MountedDispatch {
-  readonly result: OptionalDispatchResult
-  readonly disposers: Array<Disposer>
-}
-
 export function normalizeEnabled(value: Partial<Record<ModuleName, unknown>> | undefined): EnabledModules {
   const normalized = { ...DEFAULT_ENABLED }
   for (const name of MODULE_NAMES) {
@@ -56,61 +45,4 @@ export function normalizeEnabled(value: Partial<Record<ModuleName, unknown>> | u
   }
   normalized.settingsHub = true
   return normalized
-}
-
-/**
- * Mount only the optional modules enabled for this tick. settingsHub is
- * mounted separately by the host entry and is therefore not in this result.
- */
-export function mount(
-  ctx: IceContext,
-  enabled: Partial<Record<ModuleName, boolean>>,
-  appliers: ModuleAppliers,
-): MountedDispatch {
-  const result = {} as OptionalDispatchResult
-  const disposers: Array<Disposer> = []
-  for (const name of OPTIONAL_MODULE_NAMES) {
-    if (enabled[name] === true) {
-      const disposer = appliers[name](ctx)
-      if (typeof disposer === 'function') disposers.push(disposer)
-      result[name] = 'apply'
-    } else {
-      result[name] = 'skipped'
-    }
-  }
-  return { result, disposers }
-}
-
-/**
- * Host-side service wrapper. The file-backed source is injected so this core
- * module stays browser-safe when its metadata is imported by the client half.
- */
-export function createDispatchService(
-  ctx: IceContext,
-  source: ConfigSource,
-  appliers: ModuleAppliers,
-) {
-  const disposers: Array<Disposer> = []
-  const disposeAll = (): void => {
-    const current = disposers.splice(0)
-    for (let index = current.length - 1; index >= 0; index -= 1) current[index]()
-  }
-
-  const mountCurrent = (): MountedDispatch => {
-    disposeAll()
-    const mounted = mount(ctx, source.read().enabled, appliers)
-    disposers.push(...mounted.disposers)
-    return mounted
-  }
-
-  const service = {
-    readEnabled: () => source.read().enabled,
-    setEnabled: (name: ModuleName, enabled: boolean) => {
-      source.setEnabled(name, enabled)
-    },
-    mount: mountCurrent,
-    tick: mountCurrent,
-    disposeAll,
-  }
-  return service
 }

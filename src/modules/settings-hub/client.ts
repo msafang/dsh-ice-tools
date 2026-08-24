@@ -164,7 +164,10 @@ export function mount(ctx: ClientContext): Disposer {
   })
   const locale = ctx.locale as unknown as LocaleRuntimeLike
   const injected = () => ({ scope, locale })
-  ctx.slots.inject('settings.section' as never, () =>
+  // The 'settings.section' slot accepts a list of entries. We register one
+  // with a deterministic id and an order so the ICE Tools page appears
+  // alongside the built-in sections.
+  ctx.slots.inject('settings.section', () =>
     ctx.slots.register(
       {
         name: 'settings.section',
@@ -172,8 +175,8 @@ export function mount(ctx: ClientContext): Disposer {
         order: 10,
         label: () => labelFor(locale.getSnapshot().active, 'settingsHub'),
         inject: injected,
-      } as never,
-      IceToolsSection as never,
+      },
+      IceToolsSection,
     ),
   )
   return () => {

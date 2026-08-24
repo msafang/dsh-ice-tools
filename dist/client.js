@@ -6,6 +6,13 @@ window.__ModuleLoader__.load({
 		Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 		let react = require("react");
 		//#region src/core/dispatch/index.ts
+		/**
+		* Module identity and default enable state. This file used to also host a
+		* dispatch service that gated optional module mounts behind a runtime
+		* file-backed toggle. That layer has been removed: module mounting is now
+		* driven by the `ice-tools` settings scope on the client, and the host half
+		* only registers the settings namespace itself.
+		*/
 		const MODULE_NAMES = [
 			"settingsHub",
 			"pluginManager",
@@ -17,7 +24,6 @@ window.__ModuleLoader__.load({
 			"gitGraph",
 			"taskBoard"
 		];
-		const OPTIONAL_MODULE_NAMES = MODULE_NAMES.filter((name) => name !== "settingsHub");
 		const DEFAULT_ENABLED = {
 			settingsHub: true,
 			pluginManager: false,
@@ -115,30 +121,6 @@ window.__ModuleLoader__.load({
 				description: "查看和管理工作任务。"
 			}
 		} };
-		//#endregion
-		//#region src/modules/chat-recovery/client.ts
-		const mount$8 = () => {};
-		//#endregion
-		//#region src/modules/desktop-launcher/client.ts
-		const mount$7 = () => {};
-		//#endregion
-		//#region src/modules/doctor/client.ts
-		const mount$6 = () => {};
-		//#endregion
-		//#region src/modules/git-graph/client.ts
-		const mount$5 = () => {};
-		//#endregion
-		//#region src/modules/plugin-manager/client.ts
-		const mount$4 = () => {};
-		//#endregion
-		//#region src/modules/session-id/client.ts
-		const mount$3 = () => {};
-		//#endregion
-		//#region src/modules/skill-explorer/client.ts
-		const mount$2 = () => {};
-		//#endregion
-		//#region src/modules/task-board/client.ts
-		const mount$1 = () => {};
 		//#endregion
 		//#region src/modules/settings-hub/client.ts
 		function enableSettingsCard(props = {}) {
@@ -291,17 +273,12 @@ window.__ModuleLoader__.load({
 			"settingsScope",
 			"connection"
 		];
-		const CLIENT_MOUNTS = {
-			settingsHub: mount,
-			pluginManager: mount$4,
-			chatRecovery: mount$8,
-			desktopLauncher: mount$7,
-			doctor: mount$6,
-			sessionId: mount$3,
-			skillExplorer: mount$2,
-			gitGraph: mount$5,
-			taskBoard: mount$1
-		};
+		/**
+		* Client mounts for the optional modules. Modules without a `mount` yet are
+		* stubs; they are listed here so that toggling their enable key takes effect
+		* the next time the settings scope publishes.
+		*/
+		const CLIENT_MOUNTS = { settingsHub: mount };
 		function disposeAll(disposers) {
 			for (let index = disposers.length - 1; index >= 0; index -= 1) disposers[index]();
 		}
@@ -314,20 +291,36 @@ window.__ModuleLoader__.load({
 				return typeof disposer === "function" ? disposer : void 0;
 			}, "dsh-ice-tools client locale register");
 			ctx.effect(() => {
-				const service = ctx.get("iceToolsDispatch");
-				const enabled = {
-					...DEFAULT_ENABLED,
-					...service?.readEnabled?.()
+				const bound = ctx.settingsScope.bind({
+					namespace: "ice-tools",
+					decode: (section) => {
+						if (typeof section !== "object" || section === null) return void 0;
+						return { enabled: normalizeEnabled(section.enabled) };
+					}
+				});
+				let disposers = [];
+				const remount = () => {
+					disposeAll(disposers);
+					const next = {
+						...DEFAULT_ENABLED,
+						...bound.getSnapshot().value?.enabled ?? {}
+					};
+					const fresh = [];
+					for (const name of MODULE_NAMES) {
+						if (!next[name]) continue;
+						const mount = CLIENT_MOUNTS[name];
+						if (mount === void 0) continue;
+						const disposer = mount(ctx);
+						if (typeof disposer === "function") fresh.push(disposer);
+					}
+					disposers = fresh;
 				};
-				const disposers = [];
-				const settingsDisposer = CLIENT_MOUNTS.settingsHub(ctx);
-				if (typeof settingsDisposer === "function") disposers.push(settingsDisposer);
-				for (const name of OPTIONAL_MODULE_NAMES) {
-					if (enabled[name] !== true) continue;
-					const disposer = CLIENT_MOUNTS[name](ctx);
-					if (typeof disposer === "function") disposers.push(disposer);
-				}
-				return () => disposeAll(disposers);
+				remount();
+				const off = bound.subscribe(remount);
+				return () => {
+					off();
+					disposeAll(disposers);
+				};
 			}, "dsh-ice-tools client mounts");
 		}
 		//#endregion

@@ -1,16 +1,10 @@
 import type { Context } from '@deepseek-ai/cordis'
-import type { ClientContext, SettingsScope } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SettingsScope } from '@deepseek-ai/dsh-client-runtime/client'
 
 export type Disposer = () => void
 
 /** Host-side Cordis context. */
 export type HostContext = Context
-
-/** Client-side Cordis context with Web GUI extensions. */
-export type ClientIceContext = ClientContext
-
-/** Union type for code that runs in both halves. */
-export type IceContext = HostContext | ClientIceContext
 
 export type { SettingsScope }
 
@@ -53,12 +47,6 @@ export interface SettingsService {
 
 export interface SettingsScopeBinder {
   bind<T>(spec: { readonly namespace: string; readonly decode?: (section: unknown) => T | undefined }): SettingsScope<T>
-}
-
-export interface DispatchClientService {
-  readonly readEnabled?: () => Readonly<Record<string, boolean>>
-  readonly setEnabled?: (name: string, enabled: boolean) => void
-  readonly tick?: () => unknown
 }
 
 /**
