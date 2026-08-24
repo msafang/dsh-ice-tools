@@ -46,10 +46,6 @@ export interface SettingsScopeBinder {
   bind<T>(spec: { readonly namespace: string; readonly decode?: (section: unknown) => T | undefined }): SettingsScope<T>
 }
 
-export interface LocaleService {
-  readonly register: (namespace: string, dictionaries: { readonly zh: unknown; readonly en: unknown }) => void | Disposer
-}
-
 export interface DispatchClientService {
   readonly readEnabled?: () => Readonly<Record<string, boolean>>
   readonly setEnabled?: (name: string, enabled: boolean) => void

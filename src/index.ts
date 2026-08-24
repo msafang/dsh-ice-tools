@@ -1,5 +1,5 @@
 import type { Context } from '@deepseek-ai/cordis'
-import type { Disposer, LocaleService } from './core/dsh-adapter/index.ts'
+import type { Disposer } from './core/dsh-adapter/index.ts'
 import { ConfigStore } from './core/config-store/index.ts'
 import {
   createDispatchService,
@@ -7,8 +7,6 @@ import {
   type OptionalModuleName,
   type OptionalDispatchResult,
 } from './core/dispatch/index.ts'
-import { en } from './i18n/en.ts'
-import { zh } from './i18n/zh.ts'
 import { apply as applyChatRecovery } from './modules/chat-recovery/index.ts'
 import { apply as applyDesktopLauncher } from './modules/desktop-launcher/index.ts'
 import { apply as applyDoctor } from './modules/doctor/index.ts'
@@ -34,10 +32,6 @@ const OPTIONAL_APPLIERS: ModuleAppliers = {
   taskBoard: applyTaskBoard,
 }
 
-interface LocaleContext extends Context {
-  readonly locale?: LocaleService
-}
-
 export function apply(ctx: Context): OptionalDispatchResult {
   const settingsDisposer = applySettingsHub(ctx)
   const store = new ConfigStore(ctx.get('homeDir') as string | undefined)
@@ -45,7 +39,11 @@ export function apply(ctx: Context): OptionalDispatchResult {
   const unprovide = () => {
     ctx.set('iceToolsDispatch', undefined)
   }
-  const localeDisposer = (ctx as LocaleContext).locale?.register('ice-tools', { zh, en })
+  // Locale dictionaries are owned by the client half: see src/client/index.ts.
+  // The host fiber has no `locale` service, and the only consumer of the i18n
+  // copy is the settings UI rendered in the browser. Reading `locale` here
+  // would force the host bundle to wait on a service that the host chain
+  // never provides.
   const mounted = dispatch.mount()
   const cleanup: Disposer[] = [
     settingsDisposer,
@@ -54,7 +52,6 @@ export function apply(ctx: Context): OptionalDispatchResult {
       void unprovide()
     },
   ]
-  if (typeof localeDisposer === 'function') cleanup.push(localeDisposer)
 
   ctx.effect(() => {
     return () => {
