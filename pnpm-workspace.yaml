@@ -1,0 +1,7 @@
+packages:
+  - .
+
+# Local build allowances: esbuild's postinstall is blocked by pnpm 11's
+# default strictDepBuilds unless allowlisted here.
+allowBuilds:
+  esbuild@0.28.2: true

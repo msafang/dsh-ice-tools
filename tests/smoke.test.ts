@@ -29,18 +29,20 @@ describe('dsh-ice-tools smoke contracts', () => {
   })
 
   it('settingsHub registers one section and exposes nine bilingual toggles', () => {
-    const registered: Array<{ namespace: string; schema: unknown; defaults: unknown; hooks: unknown }> = []
+    const registered: Array<{ ns: string; schema: (value: unknown) => unknown; defaults: unknown }> = []
     const ctx = {
       get: (name: string) => name === 'settings'
         ? {
-            installSettingsSection: (
-              _ctx: unknown,
-              namespace: string,
-              schema: unknown,
-              defaults: unknown,
-              hooks: unknown,
+            register: (
+              ns: string,
+              schema: (value: unknown) => unknown,
+              options: { base?: unknown },
             ) => {
-              registered.push({ namespace, schema, defaults, hooks })
+              registered.push({ ns, schema, defaults: options.base })
+              return {
+                get: () => schema(undefined),
+                watch: () => () => {},
+              }
             },
           }
         : undefined,
@@ -48,7 +50,12 @@ describe('dsh-ice-tools smoke contracts', () => {
 
     applySettingsHub(ctx)
     expect(registered).toHaveLength(1)
-    expect(registered[0]).toMatchObject({ namespace: 'ice-tools' })
+    expect(registered[0].ns).toBe('ice-tools')
+    // The schema must be callable (the provider resolves by invoking it) and
+    // normalize the enabled map.
+    expect(registered[0].schema).toBeTypeOf('function')
+    expect(registered[0].schema({ enabled: { sessionId: true } })).toMatchObject({ enabled: { sessionId: true } })
+    expect(registered[0].defaults).toMatchObject({ enabled: { settingsHub: true } })
 
     const toggles = enableSettingsCard({ enabled: { sessionId: true } })
     expect(toggles).toHaveLength(9)

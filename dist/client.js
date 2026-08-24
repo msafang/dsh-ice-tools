@@ -4,6 +4,7 @@ window.__ModuleLoader__.load({
 		var module = { exports: {} };
 		var exports = module.exports;
 		Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
+		let react = require("react");
 		//#region src/core/dispatch/index.ts
 		const MODULE_NAMES = [
 			"settingsHub",
@@ -28,6 +29,12 @@ window.__ModuleLoader__.load({
 			gitGraph: false,
 			taskBoard: false
 		};
+		function normalizeEnabled(value) {
+			const normalized = { ...DEFAULT_ENABLED };
+			for (const name of MODULE_NAMES) if (typeof value?.[name] === "boolean") normalized[name] = value[name];
+			normalized.settingsHub = true;
+			return normalized;
+		}
 		//#endregion
 		//#region src/i18n/en.ts
 		const en = { modules: {
@@ -170,30 +177,111 @@ window.__ModuleLoader__.load({
 				}
 			};
 		}
-		/** Register the settings card in the upstream keyed plugin-item slot. */
-		function mount(ctx) {
-			const service = ctx.get("iceToolsDispatch");
-			const configuredEnabled = ctx.settingsScope.bind({ namespace: "ice-tools" }).getSnapshot().value?.enabled;
-			const card = renderSettingsCard({
-				enabled: configuredEnabled ?? service?.readEnabled?.(),
-				onToggle: (name, enabled) => service?.setEnabled?.(name, enabled)
-			});
-			const localeDisposer = ctx.locale.register("ice-tools", {
-				zh,
-				en
-			});
-			ctx.slots.inject("web-ui.plugin.item", () => ctx.slots.register({
-				name: "web-ui.plugin.item",
-				key: "ice-tools",
-				locale: "ice-tools",
-				inject: () => ({ card })
-			}, (() => card)));
-			let disposed = false;
-			return () => {
-				if (disposed) return;
-				disposed = true;
-				if (typeof localeDisposer === "function") localeDisposer();
+		function dictFor(active) {
+			return active === "zh" ? zh : en;
+		}
+		function labelFor(active, id) {
+			return dictFor(active).modules[id].label;
+		}
+		const sectionStyle = {
+			display: "flex",
+			flexDirection: "column",
+			gap: "8px",
+			padding: "4px 0"
+		};
+		const rowStyle = {
+			display: "flex",
+			alignItems: "center",
+			gap: "10px",
+			padding: "8px 10px",
+			borderRadius: "10px",
+			cursor: "pointer"
+		};
+		const labelStyle = {
+			fontWeight: 500,
+			fontSize: "14px",
+			lineHeight: "22px",
+			minWidth: "120px"
+		};
+		const descStyle = {
+			color: "var(--dsw-alias-label-secondary, #666)",
+			fontSize: "13px",
+			lineHeight: "20px"
+		};
+		/**
+		* The ICE Tools settings page: one toggle row per module. Enabled state is
+		* read from and written to the host-registered `ice-tools` settings namespace
+		* through the injected settings scope, so toggles survive reloads.
+		*/
+		function IceToolsSection(props) {
+			const { scope, locale } = props;
+			const [settings, setSettings] = (0, react.useState)(() => scope.getSnapshot());
+			const [localeSnapshot, setLocaleSnapshot] = (0, react.useState)(() => locale.getSnapshot());
+			(0, react.useEffect)(() => {
+				const offSettings = scope.subscribe(() => setSettings(scope.getSnapshot()));
+				const offLocale = locale.subscribe(() => setLocaleSnapshot(locale.getSnapshot()));
+				return () => {
+					offSettings();
+					offLocale();
+				};
+			}, [scope, locale]);
+			const dict = dictFor(localeSnapshot.active);
+			const enabled = {
+				...DEFAULT_ENABLED,
+				...settings.value?.enabled ?? {}
 			};
+			const writable = settings.writable;
+			const toggle = (name, next) => {
+				scope.set("enabled", {
+					...enabled,
+					settingsHub: true,
+					[name]: next
+				});
+			};
+			const rows = MODULE_NAMES.map((id) => (0, react.createElement)("label", {
+				key: id,
+				style: rowStyle,
+				"data-dsh-plugin": "ice-tools",
+				"data-dsh-part": "settings-row",
+				"data-module": id
+			}, (0, react.createElement)("input", {
+				type: "checkbox",
+				checked: enabled[id],
+				disabled: id === "settingsHub" || !writable,
+				onChange: (event) => toggle(id, event.target.checked)
+			}), (0, react.createElement)("span", { style: labelStyle }, dict.modules[id].label), (0, react.createElement)("span", { style: descStyle }, dict.modules[id].description)));
+			return (0, react.createElement)("section", {
+				"data-dsh-plugin": "ice-tools",
+				style: sectionStyle
+			}, rows);
+		}
+		/**
+		* Register the ICE Tools settings page in the canonical `settings.section`
+		* slot, which the settings shell projects into its navigation and content
+		* column. The `ice-tools` locale namespace is registered exactly once by the
+		* client fiber's apply() (src/client/index.ts).
+		*/
+		function mount(ctx) {
+			const scope = ctx.settingsScope.bind({
+				namespace: "ice-tools",
+				decode: (section) => {
+					if (typeof section !== "object" || section === null) return void 0;
+					return { enabled: normalizeEnabled(section.enabled) };
+				}
+			});
+			const locale = ctx.locale;
+			const injected = () => ({
+				scope,
+				locale
+			});
+			ctx.slots.inject("settings.section", () => ctx.slots.register({
+				name: "settings.section",
+				id: "ice-tools",
+				order: 10,
+				label: () => labelFor(locale.getSnapshot().active, "settingsHub"),
+				inject: injected
+			}, IceToolsSection));
+			return () => {};
 		}
 		//#endregion
 		//#region src/client/index.ts

@@ -147,20 +147,31 @@ function apply$2(ctx) {}
 //#endregion
 //#region src/core/dsh-adapter/index.ts
 /**
-* Keep the public helper's argument order identical to upstream settings
-* registration while resolving the provider through Cordis.
+* Register one settings namespace through the injected host settings service.
+* The provider exposes `register(ns, schema, { base })` (there is no
+* `installSettingsSection` method on the service — that is a standalone
+* helper in @deepseek-ai/dsh-settings), so the wiring mirrors the upstream
+* helper: point the source thunk at the registered scope and forward change
+* notifications through `watch`.
 */
 function installSettingsSection(ctx, namespace, schema, defaults, hooks) {
-	const disposer = ctx.get("settings")?.installSettingsSection?.(ctx, namespace, schema, defaults, hooks);
-	return typeof disposer === "function" ? disposer : () => {};
+	const scope = ctx.get("settings")?.register?.(namespace, schema, { base: defaults });
+	if (scope === void 0) return () => {};
+	hooks.setSource?.(() => scope.get());
+	hooks.onChange?.();
+	const offWatch = scope.watch(() => hooks.onChange?.());
+	return () => {
+		if (typeof offWatch === "function") offWatch();
+	};
 }
 //#endregion
 //#region src/modules/settings-hub/index.ts
-/** The settings schema is intentionally kept at the injected adapter boundary. */
-const Config = {
+const Config = Object.assign((value) => {
+	return { enabled: normalizeEnabled((value ?? {}).enabled) };
+}, { toJSON: () => ({
 	type: "object",
-	properties: { enabled: { type: "object" } }
-};
+	props: {}
+}) });
 const defaults = { enabled: { ...DEFAULT_ENABLED } };
 /** Register the top-level bilingual settings section and return its disposer. */
 function apply$1(ctx) {

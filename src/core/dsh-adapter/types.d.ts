@@ -24,6 +24,7 @@ declare module '@deepseek-ai/dsh-client-runtime/client' {
     getSnapshot(): {
       status: 'loading' | 'ready' | 'unavailable'
       value: T | undefined
+      writable: boolean
     }
     subscribe(listener: () => void): () => void
     set(field: string, value: unknown): Promise<void>
