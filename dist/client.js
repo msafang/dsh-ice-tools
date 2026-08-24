@@ -23,30 +23,6 @@ const DEFAULT_ENABLED = {
 	taskBoard: false
 };
 //#endregion
-//#region src/modules/chat-recovery/client.ts
-const mount$8 = () => {};
-//#endregion
-//#region src/modules/desktop-launcher/client.ts
-const mount$7 = () => {};
-//#endregion
-//#region src/modules/doctor/client.ts
-const mount$6 = () => {};
-//#endregion
-//#region src/modules/git-graph/client.ts
-const mount$5 = () => {};
-//#endregion
-//#region src/modules/plugin-manager/client.ts
-const mount$4 = () => {};
-//#endregion
-//#region src/modules/session-id/client.ts
-const mount$3 = () => {};
-//#endregion
-//#region src/modules/skill-explorer/client.ts
-const mount$2 = () => {};
-//#endregion
-//#region src/modules/task-board/client.ts
-const mount$1 = () => {};
-//#endregion
 //#region src/i18n/en.ts
 const en = { modules: {
 	settingsHub: {
@@ -126,6 +102,30 @@ const zh = { modules: {
 		description: "查看和管理工作任务。"
 	}
 } };
+//#endregion
+//#region src/modules/chat-recovery/client.ts
+const mount$8 = () => {};
+//#endregion
+//#region src/modules/desktop-launcher/client.ts
+const mount$7 = () => {};
+//#endregion
+//#region src/modules/doctor/client.ts
+const mount$6 = () => {};
+//#endregion
+//#region src/modules/git-graph/client.ts
+const mount$5 = () => {};
+//#endregion
+//#region src/modules/plugin-manager/client.ts
+const mount$4 = () => {};
+//#endregion
+//#region src/modules/session-id/client.ts
+const mount$3 = () => {};
+//#endregion
+//#region src/modules/skill-explorer/client.ts
+const mount$2 = () => {};
+//#endregion
+//#region src/modules/task-board/client.ts
+const mount$1 = () => {};
 //#endregion
 //#region src/modules/settings-hub/client.ts
 function enableSettingsCard(props = {}) {
@@ -212,6 +212,13 @@ function disposeAll(disposers) {
 	for (let index = disposers.length - 1; index >= 0; index -= 1) disposers[index]();
 }
 function apply(ctx) {
+	ctx.effect(() => {
+		const disposer = ctx.locale?.register("ice-tools", {
+			zh,
+			en
+		});
+		return typeof disposer === "function" ? disposer : void 0;
+	}, "dsh-ice-tools client locale register");
 	ctx.effect(() => {
 		const service = ctx.get("iceToolsDispatch");
 		const enabled = {
