@@ -2,6 +2,7 @@ import { createElement, useEffect, useState, type CSSProperties, type ReactEleme
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type { Disposer, ReactElementLike, SettingsScope } from '../../core/dsh-adapter/index.ts'
 import { DEFAULT_ENABLED, MODULE_NAMES, normalizeEnabled, type EnabledModules, type IceConfig, type ModuleName } from '../../core/dispatch/index.ts'
+import { runDoctor, type DoctorRun } from '../doctor/client.ts'
 import { en } from '../../i18n/en.ts'
 import { zh } from '../../i18n/zh.ts'
 
@@ -78,6 +79,8 @@ interface IceToolsSectionProps {
   scope: SettingsScopeLike
   /** Live locale runtime for bilingual copy. */
   locale: LocaleRuntimeLike
+  /** Owning client context; exposed so the doctor button can probe the runtime. */
+  ctx?: ClientContext
 }
 
 const sectionStyle: CSSProperties = {
@@ -109,15 +112,53 @@ const descStyle: CSSProperties = {
   lineHeight: '20px',
 }
 
+const buttonStyle: CSSProperties = {
+  alignSelf: 'flex-start',
+  padding: '6px 12px',
+  borderRadius: '8px',
+  border: '1px solid var(--dsw-alias-border, #ccc)',
+  background: 'var(--dsw-alias-bg-elevated, #f5f5f5)',
+  cursor: 'pointer',
+  fontSize: '13px',
+}
+
+const checkRowStyle: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: '20px 1fr auto',
+  gap: '8px',
+  padding: '6px 10px',
+  borderRadius: '8px',
+  background: 'var(--dsw-alias-bg-row, rgba(127,127,127,0.05))',
+  alignItems: 'center',
+}
+
+const checkPassStyle: CSSProperties = {
+  color: 'var(--dsw-alias-success, #0a7d2c)',
+  fontWeight: 600,
+}
+
+const checkFailStyle: CSSProperties = {
+  color: 'var(--dsw-alias-danger, #b42318)',
+  fontWeight: 600,
+}
+
+const noteStyle: CSSProperties = {
+  color: 'var(--dsw-alias-label-secondary, #666)',
+  fontSize: '12px',
+  lineHeight: '18px',
+}
+
 /**
  * The ICE Tools settings page: one toggle row per module. Enabled state is
  * read from and written to the host-registered `ice-tools` settings namespace
  * through the injected settings scope, so toggles survive reloads.
  */
 function IceToolsSection(props: IceToolsSectionProps): ReactElement {
-  const { scope, locale } = props
+  const { scope, locale, ctx } = props
   const [settings, setSettings] = useState(() => scope.getSnapshot())
   const [localeSnapshot, setLocaleSnapshot] = useState(() => locale.getSnapshot())
+  const [doctorRun, setDoctorRun] = useState<DoctorRun | undefined>(undefined)
+  const [doctorRunning, setDoctorRunning] = useState(false)
   useEffect(() => {
     const offSettings = scope.subscribe(() => setSettings(scope.getSnapshot()))
     const offLocale = locale.subscribe(() => setLocaleSnapshot(locale.getSnapshot()))
@@ -140,6 +181,15 @@ function IceToolsSection(props: IceToolsSectionProps): ReactElement {
     void scope.set('enabled', { ...enabled, settingsHub: true, [name]: next })
   }
 
+  const onRunDoctor = (): void => {
+    if (ctx === undefined || doctorRunning) return
+    setDoctorRunning(true)
+    void runDoctor(ctx).then((result) => {
+      setDoctorRun(result)
+      setDoctorRunning(false)
+    })
+  }
+
   const rows = MODULE_NAMES.map((id) =>
     createElement('label', {
       key: id,
@@ -159,7 +209,49 @@ function IceToolsSection(props: IceToolsSectionProps): ReactElement {
     ),
   )
 
-  return createElement('section', { 'data-dsh-plugin': 'ice-tools', style: sectionStyle }, rows)
+  const doctorBlock = createElement('div', {
+    key: 'doctor',
+    style: { display: 'flex', flexDirection: 'column', gap: '8px', padding: '8px 0' },
+  },
+    createElement('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } },
+      createElement('span', { style: { fontWeight: 600 } }, dict.doctor.title),
+      createElement('button', {
+        type: 'button',
+        style: buttonStyle,
+        onClick: onRunDoctor,
+        disabled: doctorRunning || ctx === undefined,
+        'data-dsh-plugin': 'ice-tools',
+        'data-dsh-part': 'doctor-run',
+      }, doctorRunning ? dict.doctor.running : dict.doctor.runButton),
+    ),
+    doctorRun === undefined
+      ? createElement('span', { style: noteStyle }, doctorRunning ? dict.doctor.running : '')
+      : createElement('div', {
+        style: { display: 'flex', flexDirection: 'column', gap: '4px' },
+        'data-dsh-plugin': 'ice-tools',
+        'data-dsh-part': 'doctor-results',
+      },
+        doctorRun.results.map((r) =>
+          createElement('div', {
+            key: r.key,
+            style: checkRowStyle,
+            'data-dsh-check': r.key,
+            'data-dsh-pass': r.pass ? 'true' : 'false',
+          },
+            createElement('span', { style: r.pass ? checkPassStyle : checkFailStyle }, r.pass ? '✓' : '✗'),
+            createElement('div', { style: { display: 'flex', flexDirection: 'column' } },
+              createElement('span', { style: { fontSize: '13px' } }, dict.doctor.checks[r.key].label),
+              createElement('span', { style: noteStyle }, r.note),
+            ),
+            createElement('span', { style: { fontSize: '12px' } },
+              r.pass ? dict.doctor.pass : dict.doctor.fail,
+            ),
+          ),
+        ),
+      ),
+  )
+
+  return createElement('section', { 'data-dsh-plugin': 'ice-tools', style: sectionStyle }, rows, doctorBlock)
 }
 
 /**
@@ -179,7 +271,7 @@ export function mount(ctx: ClientContext): Disposer {
     },
   })
   const locale = ctx.locale as unknown as LocaleRuntimeLike
-  const injected = () => ({ scope, locale })
+  const injected = () => ({ scope, locale, ctx })
   // The 'settings.section' slot accepts a list of entries. We register one
   // with a deterministic id so the ICE Tools page appears alongside the
   // built-in sections. `priority` lets us shadow any prior registrant at the

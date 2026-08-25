@@ -5,7 +5,67 @@ export interface ModuleI18nEntry {
   readonly description: string
 }
 
-export const zh: { readonly modules: Record<ModuleName, ModuleI18nEntry> } = {
+export interface DoctorEntry {
+  readonly label: string
+  readonly detail: string
+}
+
+export interface DoctorDictionary {
+  readonly title: string
+  readonly runButton: string
+  readonly running: string
+  readonly pass: string
+  readonly fail: string
+  readonly checks: {
+    readonly connection: DoctorEntry
+    readonly settingsDescribe: DoctorEntry
+    readonly namespaceRegistered: DoctorEntry
+    readonly schemaSerializable: DoctorEntry
+    readonly providerWritable: DoctorEntry
+    readonly localeActive: DoctorEntry
+    readonly enabledKeys: DoctorEntry
+  }
+}
+
+export const doctor: DoctorDictionary = {
+  title: '诊断',
+  runButton: '运行诊断',
+  running: '运行中…',
+  pass: '通过',
+  fail: '失败',
+  checks: {
+    connection: {
+      label: '连接句柄',
+      detail: '客户端可达 settings transport。',
+    },
+    settingsDescribe: {
+      label: 'settings.describe RPC',
+      detail: 'Host settings provider 响应了 describe 请求。',
+    },
+    namespaceRegistered: {
+      label: 'ice-tools namespace',
+      detail: 'Host 注册了 ice-tools settings namespace。',
+    },
+    schemaSerializable: {
+      label: 'Schema 可序列化',
+      detail: 'namespace schema.toJSON() 返回了可用的信封。',
+    },
+    providerWritable: {
+      label: 'Provider 可写',
+      detail: 'settings provider 接受本进程的写入。',
+    },
+    localeActive: {
+      label: 'Locale 已激活',
+      detail: 'client runtime 持有 locale 快照。',
+    },
+    enabledKeys: {
+      label: 'Enabled 键完整',
+      detail: '解析后的 section 包含所有模块键。',
+    },
+  },
+}
+
+export const zh: { readonly modules: Record<ModuleName, ModuleI18nEntry>; readonly doctor: DoctorDictionary } = {
   modules: {
     settingsHub: { label: '设置中心', description: '管理 ICE 工具模块和子设置入口。' },
     pluginManager: { label: '插件管理', description: '插件安装、启用和 profile 管理。' },
@@ -17,4 +77,5 @@ export const zh: { readonly modules: Record<ModuleName, ModuleI18nEntry> } = {
     gitGraph: { label: 'Git 图谱', description: '查看工作区 Git 提交关系。' },
     taskBoard: { label: '任务看板', description: '查看和管理工作任务。' },
   },
+  doctor,
 }
