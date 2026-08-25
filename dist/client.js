@@ -81,6 +81,16 @@ window.__ModuleLoader__.load({
 						detail: "The resolved section has every module key present."
 					}
 				}
+			},
+			sessionId: {
+				title: "Session ID",
+				refresh: "Refresh",
+				copy: "Copy",
+				copied: "Copied",
+				copyFailed: "Copy failed",
+				empty: "No sessions yet.",
+				running: "Running",
+				idle: "Idle"
 			}
 		};
 		const zh = {
@@ -158,6 +168,16 @@ window.__ModuleLoader__.load({
 						detail: "解析后的 section 包含所有模块键。"
 					}
 				}
+			},
+			sessionId: {
+				title: "会话 ID",
+				refresh: "刷新",
+				copy: "复制",
+				copied: "已复制",
+				copyFailed: "复制失败",
+				empty: "没有会话。",
+				running: "运行中",
+				idle: "空闲"
 			}
 		};
 		//#endregion
@@ -333,6 +353,95 @@ window.__ModuleLoader__.load({
 			};
 		}
 		//#endregion
+		//#region src/modules/session-id/client.ts
+		function isString(value) {
+			return typeof value === "string";
+		}
+		function asSummary(value) {
+			if (typeof value !== "object" || value === null) return void 0;
+			const candidate = value;
+			if (!isString(candidate.sessionId)) return void 0;
+			return {
+				sessionId: candidate.sessionId,
+				...isString(candidate.title) ? { title: candidate.title } : {},
+				...typeof candidate.updatedAt === "number" ? { updatedAt: candidate.updatedAt } : {},
+				...typeof candidate.running === "boolean" ? { running: candidate.running } : {}
+			};
+		}
+		/**
+		* Pull the session list through the loopback connection. The list shape is
+		* `{ items: SessionSummary[] }` per the upstream `sessions/list` contract;
+		* unknown entries are dropped silently so a future Host-side addition does
+		* not crash the doctor.
+		*/
+		async function listSessions(ctx) {
+			const conn = ctx.get("connection");
+			if (conn === void 0) return {
+				sessions: [],
+				error: "connection service missing"
+			};
+			const response = await conn.api.sessions.list({});
+			if (!response.result.ok) return {
+				sessions: [],
+				error: response.result.error.message
+			};
+			const items = Array.isArray(response.result.value.items) ? response.result.value.items : [];
+			const sessions = [];
+			for (const item of items) {
+				const summary = asSummary(item);
+				if (summary !== void 0) sessions.push(summary);
+			}
+			return { sessions };
+		}
+		/**
+		* Copy a string to the clipboard. Uses `navigator.clipboard.writeText` when
+		* the secure-context API is available; otherwise it tries the legacy
+		* `document.execCommand('copy')` fallback through a hidden textarea so the
+		* feature still works in non-secure-context preview builds.
+		*/
+		async function copyToClipboard(text) {
+			if (typeof navigator !== "undefined" && navigator.clipboard?.writeText !== void 0) try {
+				await navigator.clipboard.writeText(text);
+				return {
+					ok: true,
+					message: "clipboard.writeText"
+				};
+			} catch (error) {
+				return {
+					ok: false,
+					message: `clipboard.writeText rejected: ${error instanceof Error ? error.message : String(error)}`
+				};
+			}
+			if (typeof document === "undefined") return {
+				ok: false,
+				message: "no clipboard API available"
+			};
+			const textarea = document.createElement("textarea");
+			textarea.value = text;
+			textarea.setAttribute("readonly", "");
+			textarea.style.position = "absolute";
+			textarea.style.left = "-9999px";
+			document.body.appendChild(textarea);
+			textarea.select();
+			try {
+				const success = document.execCommand("copy");
+				document.body.removeChild(textarea);
+				return success ? {
+					ok: true,
+					message: "execCommand"
+				} : {
+					ok: false,
+					message: "execCommand returned false"
+				};
+			} catch (error) {
+				document.body.removeChild(textarea);
+				return {
+					ok: false,
+					message: `execCommand threw: ${error instanceof Error ? error.message : String(error)}`
+				};
+			}
+		}
+		//#endregion
 		//#region src/modules/settings-hub/client.ts
 		function enableSettingsCard(props = {}) {
 			const enabled = {
@@ -372,6 +481,69 @@ window.__ModuleLoader__.load({
 		}
 		function dictFor(active) {
 			return active === "zh" ? zh : en;
+		}
+		function sessionIdBlock(sessions, sessionsError, sessionsRunning, copyFlash, sdict, onRefresh, onCopy) {
+			const list = sessionsError !== void 0 ? (0, react.createElement)("span", { style: noteStyle }, sessionsError) : sessions.length === 0 ? (0, react.createElement)("span", { style: noteStyle }, sdict.empty) : (0, react.createElement)("div", {
+				style: {
+					display: "flex",
+					flexDirection: "column",
+					gap: "4px"
+				},
+				"data-dsh-plugin": "ice-tools",
+				"data-dsh-part": "session-list"
+			}, sessions.map((entry) => {
+				const copied = copyFlash === `copied:${entry.sessionId}`;
+				return (0, react.createElement)("div", {
+					key: entry.sessionId,
+					style: {
+						display: "grid",
+						gridTemplateColumns: "1fr auto auto",
+						gap: "8px",
+						alignItems: "center",
+						padding: "4px 8px",
+						borderRadius: "6px",
+						background: "var(--dsw-alias-bg-row, rgba(127,127,127,0.05))"
+					},
+					"data-dsh-session-id": entry.sessionId
+				}, (0, react.createElement)("code", { style: {
+					fontFamily: "var(--dsw-alias-font-mono, ui-monospace, monospace)",
+					fontSize: "12px",
+					overflow: "hidden",
+					textOverflow: "ellipsis"
+				} }, entry.sessionId), (0, react.createElement)("span", { style: { fontSize: "12px" } }, entry.running === true ? sdict.running : sdict.idle), (0, react.createElement)("button", {
+					type: "button",
+					style: {
+						...buttonStyle,
+						padding: "4px 8px"
+					},
+					onClick: () => onCopy(entry.sessionId)
+				}, copied ? sdict.copied : sdict.copy));
+			}), copyFlash === "failed" ? (0, react.createElement)("span", { style: {
+				...noteStyle,
+				color: "var(--dsw-alias-danger, #b42318)"
+			} }, sdict.copyFailed) : null);
+			return (0, react.createElement)("div", {
+				key: "session-id",
+				style: {
+					display: "flex",
+					flexDirection: "column",
+					gap: "8px",
+					padding: "8px 0"
+				},
+				"data-dsh-plugin": "ice-tools",
+				"data-dsh-part": "session-id"
+			}, (0, react.createElement)("div", { style: {
+				display: "flex",
+				gap: "8px",
+				alignItems: "center"
+			} }, (0, react.createElement)("span", { style: { fontWeight: 600 } }, sdict.title), (0, react.createElement)("button", {
+				type: "button",
+				style: buttonStyle,
+				onClick: onRefresh,
+				disabled: sessionsRunning,
+				"data-dsh-plugin": "ice-tools",
+				"data-dsh-part": "session-refresh"
+			}, sessionsRunning ? "…" : sdict.refresh)), list);
 		}
 		function labelFor(active, id) {
 			return dictFor(active).modules[id].label;
@@ -443,6 +615,10 @@ window.__ModuleLoader__.load({
 			const [localeSnapshot, setLocaleSnapshot] = (0, react.useState)(() => locale.getSnapshot());
 			const [doctorRun, setDoctorRun] = (0, react.useState)(void 0);
 			const [doctorRunning, setDoctorRunning] = (0, react.useState)(false);
+			const [sessions, setSessions] = (0, react.useState)([]);
+			const [sessionsError, setSessionsError] = (0, react.useState)(void 0);
+			const [sessionsRunning, setSessionsRunning] = (0, react.useState)(false);
+			const [copyFlash, setCopyFlash] = (0, react.useState)(void 0);
 			(0, react.useEffect)(() => {
 				const offSettings = scope.subscribe(() => setSettings(scope.getSnapshot()));
 				const offLocale = locale.subscribe(() => setLocaleSnapshot(locale.getSnapshot()));
@@ -470,6 +646,21 @@ window.__ModuleLoader__.load({
 				runDoctor(ctx).then((result) => {
 					setDoctorRun(result);
 					setDoctorRunning(false);
+				});
+			};
+			const onRefreshSessions = () => {
+				if (ctx === void 0 || sessionsRunning) return;
+				setSessionsRunning(true);
+				listSessions(ctx).then((result) => {
+					setSessions(result.sessions);
+					setSessionsError(result.error);
+					setSessionsRunning(false);
+				});
+			};
+			const onCopySession = (sessionId) => {
+				copyToClipboard(sessionId).then((outcome) => {
+					setCopyFlash(outcome.ok ? `copied:${sessionId}` : "failed");
+					if (typeof window !== "undefined") window.setTimeout(() => setCopyFlash(void 0), 1500);
 				});
 			};
 			const rows = MODULE_NAMES.map((id) => (0, react.createElement)("label", {
@@ -523,7 +714,7 @@ window.__ModuleLoader__.load({
 			return (0, react.createElement)("section", {
 				"data-dsh-plugin": "ice-tools",
 				style: sectionStyle
-			}, rows, doctorBlock);
+			}, rows, doctorBlock, sessionIdBlock(sessions, sessionsError, sessionsRunning, copyFlash, dict.sessionId, onRefreshSessions, onCopySession));
 		}
 		/**
 		* Register the ICE Tools settings page in the canonical `settings.section`
