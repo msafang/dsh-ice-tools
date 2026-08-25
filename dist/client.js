@@ -126,7 +126,9 @@ window.__ModuleLoader__.load({
 				placeholder: "https://... or mailto:...",
 				open: "Open",
 				hint: "Copied to clipboard; paste in your system browser to open.",
-				unsupported: "Unsupported URL scheme."
+				unsupported: "Unsupported URL scheme.",
+				historyEmpty: "No history for this scheme.",
+				remove: "Remove"
 			},
 			pluginManager: {
 				title: "Plugin Manager",
@@ -269,7 +271,9 @@ window.__ModuleLoader__.load({
 				placeholder: "https://... 或 mailto:...",
 				open: "打开",
 				hint: "已复制到剪贴板，请在系统浏览器中打开。",
-				unsupported: "不支持的 URL 协议。"
+				unsupported: "不支持的 URL 协议。",
+				historyEmpty: "该协议下没有历史记录。",
+				remove: "删除"
 			},
 			pluginManager: {
 				title: "插件管理",
@@ -772,6 +776,46 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region src/modules/desktop-launcher/client.ts
+		const HISTORY_KEY = "dsh-ice-tools.launcher.history.v1";
+		const HISTORY_LIMIT = 10;
+		const QUICK_PRESETS = [
+			{
+				id: "github-issue",
+				scheme: "https",
+				label: {
+					en: "GitHub issue",
+					zh: "GitHub Issue"
+				},
+				placeholder: "https://github.com/owner/repo/issues/123"
+			},
+			{
+				id: "github-pr",
+				scheme: "https",
+				label: {
+					en: "GitHub PR",
+					zh: "GitHub PR"
+				},
+				placeholder: "https://github.com/owner/repo/pull/456"
+			},
+			{
+				id: "github-commit",
+				scheme: "https",
+				label: {
+					en: "GitHub commit",
+					zh: "GitHub commit"
+				},
+				placeholder: "https://github.com/owner/repo/commit/abc123"
+			},
+			{
+				id: "mailto",
+				scheme: "mailto",
+				label: {
+					en: "Email",
+					zh: "邮件"
+				},
+				placeholder: "mailto:someone@example.com?subject=..."
+			}
+		];
 		/**
 		* Validate a URL string enough that we can copy it confidently. We accept
 		* http(s) and mailto schemes; everything else (javascript:, file:, data:)
@@ -785,6 +829,14 @@ window.__ModuleLoader__.load({
 			if (trimmed.startsWith("mailto:")) return true;
 			return false;
 		}
+		/** Detect the URL scheme without depending on the URL constructor. */
+		function schemeOf(raw) {
+			const trimmed = raw.trim().toLowerCase();
+			if (trimmed.startsWith("https://")) return "https";
+			if (trimmed.startsWith("http://")) return "http";
+			if (trimmed.startsWith("mailto:")) return "mailto";
+			return "other";
+		}
 		async function openOrCopyUrl(raw, copy) {
 			const trimmed = raw.trim();
 			if (!isLaunchableUrl(trimmed)) return {
@@ -792,6 +844,72 @@ window.__ModuleLoader__.load({
 				message: "unsupported scheme"
 			};
 			return await copy(trimmed);
+		}
+		function safeStorage$1() {
+			if (typeof window === "undefined" || window.localStorage === void 0) return void 0;
+			return window.localStorage;
+		}
+		/**
+		* Read the URL history from localStorage. Returns an empty array on any
+		* failure (no window, quota, malformed JSON) so the caller can render
+		* an empty-state hint without further guarding.
+		*/
+		function loadHistory() {
+			const store = safeStorage$1();
+			if (store === void 0) return [];
+			const raw = store.getItem(HISTORY_KEY);
+			if (raw === null) return [];
+			try {
+				const parsed = JSON.parse(raw);
+				if (!Array.isArray(parsed)) return [];
+				const entries = [];
+				for (const item of parsed) {
+					if (typeof item !== "object" || item === null) continue;
+					const candidate = item;
+					if (typeof candidate.url !== "string") continue;
+					if (typeof candidate.usedAt !== "number") continue;
+					const scheme = candidate.scheme;
+					if (scheme !== "http" && scheme !== "https" && scheme !== "mailto" && scheme !== "other") continue;
+					entries.push({
+						url: candidate.url,
+						scheme,
+						usedAt: candidate.usedAt
+					});
+				}
+				return entries;
+			} catch {
+				return [];
+			}
+		}
+		function persistHistory(entries) {
+			const store = safeStorage$1();
+			if (store === void 0) return;
+			try {
+				store.setItem(HISTORY_KEY, JSON.stringify(entries));
+			} catch {}
+		}
+		/**
+		* Record a successful URL handoff at the front of the history list.
+		* Duplicates collapse (the most recent timestamp wins) and the list is
+		* capped at HISTORY_LIMIT entries.
+		*/
+		function recordHistory(entries, url) {
+			const scheme = schemeOf(url);
+			const trimmed = url.trim();
+			const filtered = entries.filter((entry) => entry.url !== trimmed);
+			const updated = [{
+				url: trimmed,
+				scheme,
+				usedAt: Date.now()
+			}, ...filtered].slice(0, HISTORY_LIMIT);
+			persistHistory(updated);
+			return updated;
+		}
+		/** Remove a single history entry by URL. */
+		function removeHistory(entries, url) {
+			const updated = entries.filter((entry) => entry.url !== url);
+			persistHistory(updated);
+			return updated;
 		}
 		//#endregion
 		//#region src/modules/plugin-manager/client.ts
@@ -1061,7 +1179,8 @@ window.__ModuleLoader__.load({
 				dict
 			})), blockFor("desktopLauncher", (0, react.createElement)(DesktopLauncherBlock, {
 				key: "desktop-launcher",
-				dict
+				dict,
+				ctx
 			})), blockFor("pluginManager", (0, react.createElement)(PluginManagerBlock, {
 				key: "plugin-manager",
 				dict
@@ -1257,15 +1376,22 @@ window.__ModuleLoader__.load({
 			color: "inherit",
 			fontSize: "13px"
 		};
-		function DesktopLauncherBlock({ dict }) {
+		function DesktopLauncherBlock({ dict, ctx }) {
 			const sdict = dict.desktopLauncher;
 			const [url, setUrl] = (0, react.useState)("");
 			const [outcome, setOutcome] = (0, react.useState)("");
-			const onOpen = () => {
-				openOrCopyUrl(url, copyToClipboard).then((result) => {
-					setOutcome(result.ok ? sdict.hint : result.message === "unsupported scheme" ? sdict.unsupported : result.message);
+			const [history, setHistory] = (0, react.useState)(() => loadHistory());
+			const [filter, setFilter] = (0, react.useState)("all");
+			const onOpen = (raw = url) => {
+				openOrCopyUrl(raw, copyToClipboard).then((result) => {
+					if (result.ok) {
+						setHistory(recordHistory(history, raw));
+						setOutcome(sdict.hint);
+					} else if (result.message === "unsupported scheme") setOutcome(sdict.unsupported);
+					else setOutcome(result.message);
 				});
 			};
+			const visible = filter === "all" ? history : history.filter((entry) => entry.scheme === filter);
 			return (0, react.createElement)("div", {
 				key: "desktop-launcher",
 				style: {
@@ -1295,9 +1421,107 @@ window.__ModuleLoader__.load({
 			}), (0, react.createElement)("button", {
 				type: "button",
 				style: buttonStyle,
-				onClick: onOpen,
+				onClick: () => onOpen(),
 				disabled: !isLaunchableUrl(url)
-			}, sdict.open)), outcome ? (0, react.createElement)("span", { style: noteStyle }, outcome) : null);
+			}, sdict.open)), (0, react.createElement)("div", { style: {
+				display: "flex",
+				gap: "8px",
+				flexWrap: "wrap"
+			} }, QUICK_PRESETS.map((preset) => (0, react.createElement)("button", {
+				key: preset.id,
+				type: "button",
+				style: {
+					...buttonStyle,
+					padding: "4px 8px",
+					fontSize: "12px"
+				},
+				onClick: () => setUrl(preset.placeholder),
+				title: preset.placeholder,
+				"data-dsh-preset": preset.id
+			}, preset.label[activeLocale(ctx)] ?? preset.label.en))), history.length > 0 ? (0, react.createElement)("div", {
+				style: {
+					display: "flex",
+					flexDirection: "column",
+					gap: "4px"
+				},
+				"data-dsh-plugin": "ice-tools",
+				"data-dsh-part": "launcher-history"
+			}, (0, react.createElement)("div", { style: {
+				display: "flex",
+				gap: "4px",
+				flexWrap: "wrap"
+			} }, [
+				"all",
+				"https",
+				"http",
+				"mailto"
+			].map((option) => (0, react.createElement)("button", {
+				key: option,
+				type: "button",
+				style: {
+					...buttonStyle,
+					padding: "2px 8px",
+					fontSize: "12px",
+					background: filter === option ? "var(--dsw-alias-bg-elevated, #ddd)" : void 0
+				},
+				onClick: () => setFilter(option),
+				"data-dsh-filter": option
+			}, option))), visible.length === 0 ? (0, react.createElement)("span", { style: noteStyle }, sdict.historyEmpty) : (0, react.createElement)("div", { style: {
+				display: "flex",
+				flexDirection: "column",
+				gap: "2px"
+			} }, visible.map((entry) => (0, react.createElement)("div", {
+				key: entry.url,
+				style: {
+					display: "grid",
+					gridTemplateColumns: "1fr auto auto",
+					gap: "8px",
+					alignItems: "center",
+					padding: "4px 8px",
+					borderRadius: "6px",
+					background: "var(--dsw-alias-bg-row, rgba(127,127,127,0.05))",
+					fontSize: "12px"
+				},
+				"data-dsh-history-url": entry.url
+			}, (0, react.createElement)("code", {
+				style: {
+					fontFamily: "var(--dsw-alias-font-mono, ui-monospace, monospace)",
+					overflow: "hidden",
+					textOverflow: "ellipsis"
+				},
+				onClick: () => setUrl(entry.url)
+			}, entry.url), (0, react.createElement)("button", {
+				type: "button",
+				style: {
+					...buttonStyle,
+					padding: "2px 8px",
+					fontSize: "12px"
+				},
+				onClick: () => onOpen(entry.url)
+			}, sdict.open), (0, react.createElement)("button", {
+				type: "button",
+				style: {
+					...buttonStyle,
+					padding: "2px 8px",
+					fontSize: "12px"
+				},
+				onClick: () => setHistory(removeHistory(history, entry.url)),
+				"aria-label": sdict.remove
+			}, "×"))))) : null, outcome ? (0, react.createElement)("span", { style: noteStyle }, outcome) : null);
+		}
+		function localeForPreset() {
+			if (typeof navigator === "undefined") return "en";
+			return (navigator.language?.toLowerCase() ?? "en").startsWith("zh") ? "zh" : "en";
+		}
+		function activeLocale(ctx) {
+			if (ctx === void 0) return localeForPreset();
+			const runtime = ctx.locale;
+			if (runtime === void 0) return localeForPreset();
+			try {
+				return runtime.getSnapshot().active.toLowerCase().startsWith("zh") ? "zh" : "en";
+			} catch {
+				return localeForPreset();
+			}
 		}
 		function PluginManagerBlock({ dict }) {
 			const sdict = dict.pluginManager;
