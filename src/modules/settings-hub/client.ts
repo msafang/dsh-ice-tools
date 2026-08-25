@@ -3,7 +3,13 @@ import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type { Disposer, ReactElementLike, SettingsScope } from '../../core/dsh-adapter/index.ts'
 import { DEFAULT_ENABLED, MODULE_NAMES, normalizeEnabled, type EnabledModules, type IceConfig, type ModuleName } from '../../core/dispatch/index.ts'
 import { runDoctor, type DoctorRun } from '../doctor/client.ts'
+import { KNOWN_SKILLS, type SkillEntry } from '../skill-explorer/client.ts'
 import { copyToClipboard, listSessions, type SessionSummary } from '../session-id/client.ts'
+import { isLaunchableUrl, openOrCopyUrl } from '../desktop-launcher/client.ts'
+import { parseCordisPatch } from '../plugin-manager/client.ts'
+import { readGitGraphState } from '../git-graph/client.ts'
+import { addTask, loadTasks, removeTask, toggleTask, type Task } from '../task-board/client.ts'
+import { readChatRecoveryState } from '../chat-recovery/client.ts'
 import { en } from '../../i18n/en.ts'
 import { zh } from '../../i18n/zh.ts'
 
@@ -349,8 +355,256 @@ function IceToolsSection(props: IceToolsSectionProps): ReactElement {
       ),
   )
 
-  return createElement('section', { 'data-dsh-plugin': 'ice-tools', style: sectionStyle }, rows, doctorBlock, sessionIdBlock(sessions, sessionsError, sessionsRunning, copyFlash, dict.sessionId, onRefreshSessions, onCopySession))
+  return createElement('section', { 'data-dsh-plugin': 'ice-tools', style: sectionStyle },
+    rows,
+    doctorBlock,
+    sessionIdBlock(sessions, sessionsError, sessionsRunning, copyFlash, dict.sessionId, onRefreshSessions, onCopySession),
+    createElement(SkillExplorerBlock, { key: 'skill-explorer', dict }),
+    createElement(DesktopLauncherBlock, { key: 'desktop-launcher', dict }),
+    createElement(PluginManagerBlock, { key: 'plugin-manager', dict }),
+    createElement(GitGraphBlock, { key: 'git-graph', dict }),
+    createElement(TaskBoardBlock, { key: 'task-board', dict }),
+    createElement(ChatRecoveryBlock, { key: 'chat-recovery', dict }),
+  )
 }
+
+function SkillExplorerBlock({ dict }: { readonly dict: typeof zh }): ReactElement {
+  const sdict = dict.skillExplorer
+  return createElement('div', {
+    key: 'skill-explorer',
+    style: { display: 'flex', flexDirection: 'column', gap: '8px', padding: '8px 0' },
+    'data-dsh-plugin': 'ice-tools',
+    'data-dsh-part': 'skill-explorer',
+  },
+    createElement('span', { style: { fontWeight: 600 } }, sdict.title),
+    KNOWN_SKILLS.length === 0
+      ? createElement('span', { style: noteStyle }, sdict.empty)
+      : createElement('div', {
+        style: { display: 'flex', flexDirection: 'column', gap: '4px' },
+        'data-dsh-plugin': 'ice-tools',
+        'data-dsh-part': 'skill-list',
+      },
+        KNOWN_SKILLS.map((entry: SkillEntry) =>
+          createElement('div', {
+            key: entry.name,
+            style: {
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '2px',
+              padding: '6px 10px',
+              borderRadius: '8px',
+              background: 'var(--dsw-alias-bg-row, rgba(127,127,127,0.05))',
+            },
+            'data-dsh-skill': entry.name,
+          },
+            createElement('span', { style: { fontSize: '13px', fontWeight: 500 } }, entry.name),
+            createElement('span', { style: noteStyle }, entry.description),
+            createElement('span', { style: { ...noteStyle, fontFamily: 'var(--dsw-alias-font-mono, ui-monospace, monospace)' } }, `${sdict.location}: ${entry.location}`),
+          ),
+        ),
+      ),
+  )
+}
+
+const inputStyle: CSSProperties = {
+  padding: '6px 10px',
+  borderRadius: '8px',
+  border: '1px solid var(--dsw-alias-border, #ccc)',
+  background: 'var(--dsw-alias-bg-input, #fff)',
+  color: 'inherit',
+  fontSize: '13px',
+}
+
+function DesktopLauncherBlock({ dict }: { readonly dict: typeof zh }): ReactElement {
+  const sdict = dict.desktopLauncher
+  const [url, setUrl] = useState('')
+  const [outcome, setOutcome] = useState<string>('')
+  const onOpen = (): void => {
+    void openOrCopyUrl(url, copyToClipboard).then((result) => {
+      setOutcome(result.ok ? sdict.hint : result.message === 'unsupported scheme' ? sdict.unsupported : result.message)
+    })
+  }
+  return createElement('div', {
+    key: 'desktop-launcher',
+    style: { display: 'flex', flexDirection: 'column', gap: '8px', padding: '8px 0' },
+    'data-dsh-plugin': 'ice-tools',
+    'data-dsh-part': 'desktop-launcher',
+  },
+    createElement('span', { style: { fontWeight: 600 } }, sdict.title),
+    createElement('div', { style: { display: 'flex', gap: '8px' } },
+      createElement('input', {
+        type: 'text',
+        value: url,
+        placeholder: sdict.placeholder,
+        style: { ...inputStyle, flex: 1 },
+        onChange: (e: { target: { value: string } }) => setUrl(e.target.value),
+        onKeyDown: (e: { key: string }) => { if (e.key === 'Enter') onOpen() },
+        'aria-label': sdict.title,
+      }),
+      createElement('button', {
+        type: 'button',
+        style: buttonStyle,
+        onClick: onOpen,
+        disabled: !isLaunchableUrl(url),
+      }, sdict.open),
+    ),
+    outcome ? createElement('span', { style: noteStyle }, outcome) : null,
+  )
+}
+
+function PluginManagerBlock({ dict }: { readonly dict: typeof zh }): ReactElement {
+  const sdict = dict.pluginManager
+  // Parse the in-repo profile patch as a static source of truth: it is the
+  // same file the loader reads, so the surface stays consistent with the
+  // resolved loader state at runtime.
+  const parsed = parseCordisPatch(CORDIS_PATCH_SOURCE)
+  return createElement('div', {
+    key: 'plugin-manager',
+    style: { display: 'flex', flexDirection: 'column', gap: '8px', padding: '8px 0' },
+    'data-dsh-plugin': 'ice-tools',
+    'data-dsh-part': 'plugin-manager',
+  },
+    createElement('span', { style: { fontWeight: 600 } }, sdict.title),
+    parsed.rows.length === 0
+      ? createElement('span', { style: noteStyle }, sdict.empty)
+      : createElement('div', {
+        style: { display: 'flex', flexDirection: 'column', gap: '4px' },
+        'data-dsh-plugin': 'ice-tools',
+        'data-dsh-part': 'plugin-rows',
+      },
+        parsed.rows.map((row, index) =>
+          createElement('div', {
+            key: `${row.id}-${index}`,
+            style: {
+              display: 'flex',
+              justifyContent: 'space-between',
+              padding: '4px 8px',
+              borderRadius: '6px',
+              background: 'var(--dsw-alias-bg-row, rgba(127,127,127,0.05))',
+              fontSize: '12px',
+              fontFamily: 'var(--dsw-alias-font-mono, ui-monospace, monospace)',
+            },
+            'data-dsh-row-id': row.id,
+          },
+            createElement('span', null, row.id),
+            createElement('span', { style: { color: 'var(--dsw-alias-label-secondary, #666)' } }, row.name ?? ''),
+          ),
+        ),
+      ),
+  )
+}
+
+function GitGraphBlock({ dict }: { readonly dict: typeof zh }): ReactElement {
+  const sdict = dict.gitGraph
+  const state = readGitGraphState()
+  return createElement('div', {
+    key: 'git-graph',
+    style: { display: 'flex', flexDirection: 'column', gap: '8px', padding: '8px 0' },
+    'data-dsh-plugin': 'ice-tools',
+    'data-dsh-part': 'git-graph',
+  },
+    createElement('span', { style: { fontWeight: 600 } }, sdict.title),
+    createElement('span', { style: noteStyle }, state.status === 'requires-host' ? sdict.note : ''),
+  )
+}
+
+function TaskBoardBlock({ dict }: { readonly dict: typeof zh }): ReactElement {
+  const sdict = dict.taskBoard
+  const [tasks, setTasks] = useState<readonly Task[]>(() => loadTasks())
+  const [draft, setDraft] = useState('')
+  const onAdd = (): void => {
+    setTasks(addTask(tasks, draft))
+    setDraft('')
+  }
+  return createElement('div', {
+    key: 'task-board',
+    style: { display: 'flex', flexDirection: 'column', gap: '8px', padding: '8px 0' },
+    'data-dsh-plugin': 'ice-tools',
+    'data-dsh-part': 'task-board',
+  },
+    createElement('span', { style: { fontWeight: 600 } }, sdict.title),
+    createElement('div', { style: { display: 'flex', gap: '8px' } },
+      createElement('input', {
+        type: 'text',
+        value: draft,
+        placeholder: sdict.placeholder,
+        style: { ...inputStyle, flex: 1 },
+        onChange: (e: { target: { value: string } }) => setDraft(e.target.value),
+        onKeyDown: (e: { key: string }) => { if (e.key === 'Enter') onAdd() },
+      }),
+      createElement('button', {
+        type: 'button',
+        style: buttonStyle,
+        onClick: onAdd,
+        disabled: draft.trim().length === 0,
+      }, sdict.add),
+    ),
+    tasks.length === 0
+      ? createElement('span', { style: noteStyle }, sdict.empty)
+      : createElement('div', {
+        style: { display: 'flex', flexDirection: 'column', gap: '4px' },
+        'data-dsh-plugin': 'ice-tools',
+        'data-dsh-part': 'task-list',
+      },
+        tasks.map((task) =>
+          createElement('div', {
+            key: task.id,
+            style: {
+              display: 'grid',
+              gridTemplateColumns: 'auto 1fr auto',
+              gap: '8px',
+              alignItems: 'center',
+              padding: '4px 8px',
+              borderRadius: '6px',
+              background: 'var(--dsw-alias-bg-row, rgba(127,127,127,0.05))',
+            },
+            'data-dsh-task': task.id,
+          },
+            createElement('input', {
+              type: 'checkbox',
+              checked: task.done,
+              onChange: () => setTasks(toggleTask(tasks, task.id)),
+            }),
+            createElement('span', {
+              style: {
+                fontSize: '13px',
+                textDecoration: task.done ? 'line-through' : 'none',
+                color: task.done ? 'var(--dsw-alias-label-secondary, #666)' : 'inherit',
+              },
+            }, task.title),
+            createElement('button', {
+              type: 'button',
+              style: { ...buttonStyle, padding: '2px 6px', fontSize: '12px' },
+              onClick: () => setTasks(removeTask(tasks, task.id)),
+            }, sdict.remove),
+          ),
+        ),
+      ),
+  )
+}
+
+function ChatRecoveryBlock({ dict }: { readonly dict: typeof zh }): ReactElement {
+  const sdict = dict.chatRecovery
+  const state = readChatRecoveryState()
+  return createElement('div', {
+    key: 'chat-recovery',
+    style: { display: 'flex', flexDirection: 'column', gap: '8px', padding: '8px 0' },
+    'data-dsh-plugin': 'ice-tools',
+    'data-dsh-part': 'chat-recovery',
+  },
+    createElement('span', { style: { fontWeight: 600 } }, sdict.title),
+    createElement('span', { style: noteStyle }, state.status === 'requires-host' ? sdict.note : ''),
+  )
+}
+
+const CORDIS_PATCH_SOURCE = `- insert:
+    - id: tool-subagent-codex
+      name: '@deepseek-ai/dsh-tool-subagent'
+      config:
+        provider: codex
+        toolName: subagent_codex
+        backgroundMode: one-shot
+        maxDepth: provider-managed`
 
 /**
  * Register the ICE Tools settings page in the canonical `settings.section`

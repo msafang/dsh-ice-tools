@@ -1,12 +1,38 @@
 import type { ModuleName } from '../core/dispatch/index.ts'
-import type { DoctorDictionary, ModuleI18nEntry, SessionIdDictionary } from './zh.ts'
+import type {
+  DoctorDictionary,
+  ModuleI18nEntry,
+  SessionIdDictionary,
+  SkillExplorerDictionary,
+  DesktopLauncherDictionary,
+  PluginManagerDictionary,
+  GitGraphDictionary,
+  TaskBoardDictionary,
+  ChatRecoveryDictionary,
+} from './zh.ts'
 
-export type { DoctorDictionary, DoctorEntry, SessionIdDictionary } from './zh.ts'
+export type {
+  DoctorDictionary,
+  DoctorEntry,
+  SessionIdDictionary,
+  SkillExplorerDictionary,
+  DesktopLauncherDictionary,
+  PluginManagerDictionary,
+  GitGraphDictionary,
+  TaskBoardDictionary,
+  ChatRecoveryDictionary,
+} from './zh.ts'
 
 export const en: {
   readonly modules: Record<ModuleName, ModuleI18nEntry>
   readonly doctor: DoctorDictionary
   readonly sessionId: SessionIdDictionary
+  readonly skillExplorer: SkillExplorerDictionary
+  readonly desktopLauncher: DesktopLauncherDictionary
+  readonly pluginManager: PluginManagerDictionary
+  readonly gitGraph: GitGraphDictionary
+  readonly taskBoard: TaskBoardDictionary
+  readonly chatRecovery: ChatRecoveryDictionary
 } = {
   modules: {
     settingsHub: { label: 'Settings Hub', description: 'Manage ICE Tools modules and sub-settings links.' },
@@ -65,5 +91,37 @@ export const en: {
     empty: 'No sessions yet.',
     running: 'Running',
     idle: 'Idle',
+  },
+  skillExplorer: {
+    title: 'Skill Explorer',
+    location: 'Path',
+    empty: 'No skills.',
+  },
+  desktopLauncher: {
+    title: 'Desktop Launcher',
+    placeholder: 'https://... or mailto:...',
+    open: 'Open',
+    hint: 'Copied to clipboard; paste in your system browser to open.',
+    unsupported: 'Unsupported URL scheme.',
+  },
+  pluginManager: {
+    title: 'Plugin Manager',
+    empty: 'No extra patch rows.',
+  },
+  gitGraph: {
+    title: 'Git Graph',
+    note: 'A Host-side git subprocess service is required to render the graph.',
+  },
+  taskBoard: {
+    title: 'Task Board',
+    placeholder: 'New task...',
+    add: 'Add',
+    done: 'Done',
+    remove: 'Remove',
+    empty: 'No tasks yet.',
+  },
+  chatRecovery: {
+    title: 'Chat Recovery',
+    note: 'A Host-side failure event stream is required to list recoverable sessions.',
   },
 }
