@@ -79,6 +79,30 @@ window.__ModuleLoader__.load({
 					enabledKeys: {
 						label: "Enabled keys",
 						detail: "The resolved section has every module key present."
+					},
+					bundleHash: {
+						label: "Bundle fingerprint",
+						detail: "Current dist/client.js matches the locally recorded hash; no stale cache."
+					},
+					localeCoverage: {
+						label: "Locale coverage",
+						detail: "The Chinese and English dictionaries cover the same module keys."
+					},
+					moduleLoader: {
+						label: "Module loader",
+						detail: "window.__ModuleLoader__ has registered the dsh-ice-tools factory."
+					},
+					clipboardApi: {
+						label: "Clipboard API",
+						detail: "navigator.clipboard.writeText is available for the Session ID copy button."
+					},
+					localStorageApi: {
+						label: "localStorage API",
+						detail: "Read/write localStorage works; required by task board and bundle fingerprint."
+					},
+					fetchApi: {
+						label: "fetch API",
+						detail: "fetch + AbortController present; required by the connection RPC."
 					}
 				}
 			},
@@ -198,6 +222,30 @@ window.__ModuleLoader__.load({
 					enabledKeys: {
 						label: "Enabled 键完整",
 						detail: "解析后的 section 包含所有模块键。"
+					},
+					bundleHash: {
+						label: "Bundle 指纹",
+						detail: "当前 dist/client.js 与本地记录一致，避免缓存陈旧包。"
+					},
+					localeCoverage: {
+						label: "双语字典覆盖",
+						detail: "中文与英文字典模块键完全对齐。"
+					},
+					moduleLoader: {
+						label: "模块加载器",
+						detail: "window.__ModuleLoader__ 已注册 dsh-ice-tools 工厂。"
+					},
+					clipboardApi: {
+						label: "剪贴板 API",
+						detail: "navigator.clipboard.writeText 可用于复制会话 ID。"
+					},
+					localStorageApi: {
+						label: "localStorage API",
+						detail: "可读写 localStorage，用于任务看板与 bundle 指纹。"
+					},
+					fetchApi: {
+						label: "fetch API",
+						detail: "fetch + AbortController 可用，连接 RPC 依赖此基元。"
 					}
 				}
 			},
@@ -283,6 +331,7 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region src/modules/doctor/client.ts
+		const BUNDLE_HASH_STORAGE_KEY = "dsh-ice-tools.bundleHash";
 		/**
 		* Read the full settings describe view through the loopback connection. The
 		* `settings.describe` RPC accepts an optional redactSecrets flag; we pass
@@ -328,6 +377,167 @@ window.__ModuleLoader__.load({
 			return {
 				pass: true,
 				note: `shape: ${Object.keys(schema).slice(0, 3).join(", ")}`
+			};
+		}
+		/** Browser-safe SHA-256 hex digest. Returns undefined if SubtleCrypto is unavailable. */
+		async function sha256Hex(text) {
+			if (typeof crypto === "undefined" || crypto.subtle === void 0) return void 0;
+			try {
+				const bytes = new TextEncoder().encode(text);
+				const buffer = await crypto.subtle.digest("SHA-256", bytes);
+				const view = new Uint8Array(buffer);
+				let out = "";
+				for (let i = 0; i < view.length; i += 1) out += view[i].toString(16).padStart(2, "0");
+				return out;
+			} catch {
+				return;
+			}
+		}
+		/**
+		* Pull the bundle source from the page. The module loader may expose the
+		* factory at `window.__ModuleLoader__['dsh-ice-tools']`; failing that, we
+		* fall back to the URL of the script tag that loaded dist/client.js so the
+		* hash at least pins the source location (a server-side redeploy will flip
+		* it). Both paths together let the check work in the common DSH shipping
+		* setups without coupling to one host's loader shape.
+		*/
+		function readBundleSource() {
+			if (typeof window === "undefined") return void 0;
+			const entry = window.__ModuleLoader__?.["dsh-ice-tools"];
+			if (typeof entry === "string") return entry;
+			if (entry !== void 0 && typeof entry.source === "string") return entry.source;
+			if (typeof document === "undefined") return void 0;
+			const scripts = document.querySelectorAll("script[src*=\"dsh-ice-tools/client.js\"]");
+			for (const script of scripts) {
+				const src = script.getAttribute("src");
+				if (src !== null) return `script:${src}`;
+			}
+		}
+		async function checkBundleHash() {
+			if (typeof window === "undefined") return {
+				pass: false,
+				note: "no window"
+			};
+			const source = readBundleSource();
+			if (source === void 0) return {
+				pass: false,
+				note: "bundle source unavailable"
+			};
+			const hash = await sha256Hex(source);
+			if (hash === void 0) return {
+				pass: false,
+				note: "crypto.subtle unavailable"
+			};
+			const stored = window.localStorage?.getItem(BUNDLE_HASH_STORAGE_KEY) ?? null;
+			if (stored === null) {
+				try {
+					window.localStorage?.setItem(BUNDLE_HASH_STORAGE_KEY, hash);
+				} catch {}
+				return {
+					pass: true,
+					note: `fingerprint recorded (${hash.slice(0, 8)}…)`
+				};
+			}
+			return stored === hash ? {
+				pass: true,
+				note: `match (${hash.slice(0, 8)}…)`
+			} : {
+				pass: false,
+				note: `stored ${stored.slice(0, 8)}… vs current ${hash.slice(0, 8)}…`
+			};
+		}
+		function checkLocaleCoverage() {
+			const zhKeys = new Set(Object.keys(zh.modules));
+			const enKeys = new Set(Object.keys(en.modules));
+			const missingInEn = [];
+			for (const key of zhKeys) if (!enKeys.has(key)) missingInEn.push(key);
+			const missingInZh = [];
+			for (const key of enKeys) if (!zhKeys.has(key)) missingInZh.push(key);
+			if (missingInEn.length === 0 && missingInZh.length === 0) return {
+				pass: true,
+				note: `${zhKeys.size} modules in both dictionaries`
+			};
+			const parts = [];
+			if (missingInEn.length > 0) parts.push(`missing in en: ${missingInEn.join(", ")}`);
+			if (missingInZh.length > 0) parts.push(`missing in zh: ${missingInZh.join(", ")}`);
+			return {
+				pass: false,
+				note: parts.join("; ")
+			};
+		}
+		function checkModuleLoader() {
+			if (typeof window === "undefined") return {
+				pass: false,
+				note: "no window"
+			};
+			const loader = window.__ModuleLoader__;
+			if (loader === void 0) return {
+				pass: false,
+				note: "window.__ModuleLoader__ is undefined"
+			};
+			return loader["dsh-ice-tools"] !== void 0 ? {
+				pass: true,
+				note: "dsh-ice-tools factory registered"
+			} : {
+				pass: false,
+				note: "loader present but dsh-ice-tools not registered"
+			};
+		}
+		function checkClipboardApi() {
+			if (typeof navigator === "undefined") return {
+				pass: false,
+				note: "no navigator"
+			};
+			if (typeof navigator.clipboard?.writeText !== "function") return {
+				pass: false,
+				note: "navigator.clipboard.writeText missing"
+			};
+			return {
+				pass: true,
+				note: "secure context API present"
+			};
+		}
+		function checkLocalStorageApi() {
+			if (typeof window === "undefined") return {
+				pass: false,
+				note: "no window"
+			};
+			const store = window.localStorage;
+			if (store === void 0) return {
+				pass: false,
+				note: "window.localStorage undefined"
+			};
+			const probeKey = `${BUNDLE_HASH_STORAGE_KEY}.probe`;
+			try {
+				store.setItem(probeKey, "1");
+				const read = store.getItem(probeKey);
+				store.removeItem(probeKey);
+				return read === "1" ? {
+					pass: true,
+					note: "read/write/remove round-trip ok"
+				} : {
+					pass: false,
+					note: "round-trip mismatch"
+				};
+			} catch (error) {
+				return {
+					pass: false,
+					note: `threw: ${error instanceof Error ? error.message : String(error)}`
+				};
+			}
+		}
+		function checkFetchApi() {
+			if (typeof fetch !== "function") return {
+				pass: false,
+				note: "fetch is not a function"
+			};
+			if (typeof AbortController !== "function") return {
+				pass: false,
+				note: "AbortController is not a function"
+			};
+			return {
+				pass: true,
+				note: "fetch + AbortController present"
 			};
 		}
 		/**
@@ -410,6 +620,42 @@ window.__ModuleLoader__.load({
 				key: "enabledKeys",
 				pass: enabledCheck.pass,
 				note: enabledCheck.note
+			});
+			const bundleCheck = await checkBundleHash();
+			results.push({
+				key: "bundleHash",
+				pass: bundleCheck.pass,
+				note: bundleCheck.note
+			});
+			const coverageCheck = checkLocaleCoverage();
+			results.push({
+				key: "localeCoverage",
+				pass: coverageCheck.pass,
+				note: coverageCheck.note
+			});
+			const loaderCheck = checkModuleLoader();
+			results.push({
+				key: "moduleLoader",
+				pass: loaderCheck.pass,
+				note: loaderCheck.note
+			});
+			const clipboardCheck = checkClipboardApi();
+			results.push({
+				key: "clipboardApi",
+				pass: clipboardCheck.pass,
+				note: clipboardCheck.note
+			});
+			const storageCheck = checkLocalStorageApi();
+			results.push({
+				key: "localStorageApi",
+				pass: storageCheck.pass,
+				note: storageCheck.note
+			});
+			const fetchCheck = checkFetchApi();
+			results.push({
+				key: "fetchApi",
+				pass: fetchCheck.pass,
+				note: fetchCheck.note
 			});
 			return {
 				results,
