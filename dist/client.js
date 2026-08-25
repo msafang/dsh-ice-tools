@@ -91,6 +91,38 @@ window.__ModuleLoader__.load({
 				empty: "No sessions yet.",
 				running: "Running",
 				idle: "Idle"
+			},
+			skillExplorer: {
+				title: "Skill Explorer",
+				location: "Path",
+				empty: "No skills."
+			},
+			desktopLauncher: {
+				title: "Desktop Launcher",
+				placeholder: "https://... or mailto:...",
+				open: "Open",
+				hint: "Copied to clipboard; paste in your system browser to open.",
+				unsupported: "Unsupported URL scheme."
+			},
+			pluginManager: {
+				title: "Plugin Manager",
+				empty: "No extra patch rows."
+			},
+			gitGraph: {
+				title: "Git Graph",
+				note: "A Host-side git subprocess service is required to render the graph."
+			},
+			taskBoard: {
+				title: "Task Board",
+				placeholder: "New task...",
+				add: "Add",
+				done: "Done",
+				remove: "Remove",
+				empty: "No tasks yet."
+			},
+			chatRecovery: {
+				title: "Chat Recovery",
+				note: "A Host-side failure event stream is required to list recoverable sessions."
 			}
 		};
 		const zh = {
@@ -178,6 +210,38 @@ window.__ModuleLoader__.load({
 				empty: "没有会话。",
 				running: "运行中",
 				idle: "空闲"
+			},
+			skillExplorer: {
+				title: "技能浏览器",
+				location: "路径",
+				empty: "没有技能。"
+			},
+			desktopLauncher: {
+				title: "桌面启动器",
+				placeholder: "https://... 或 mailto:...",
+				open: "打开",
+				hint: "已复制到剪贴板，请在系统浏览器中打开。",
+				unsupported: "不支持的 URL 协议。"
+			},
+			pluginManager: {
+				title: "插件管理",
+				empty: "未发现额外 patch 行。"
+			},
+			gitGraph: {
+				title: "Git 图谱",
+				note: "需要 Host 提供 git 子进程服务才能渲染图谱。"
+			},
+			taskBoard: {
+				title: "任务看板",
+				placeholder: "新任务...",
+				add: "添加",
+				done: "完成",
+				remove: "删除",
+				empty: "没有任务。"
+			},
+			chatRecovery: {
+				title: "对话恢复",
+				note: "需要 Host 提供失败会话事件流才能列出可恢复项。"
 			}
 		};
 		//#endregion
@@ -353,6 +417,25 @@ window.__ModuleLoader__.load({
 			};
 		}
 		//#endregion
+		//#region src/modules/skill-explorer/client.ts
+		const KNOWN_SKILLS = [
+			{
+				name: "agently-mail",
+				description: "Email operations through the agently-cli skill set.",
+				location: "~/.dsh/skills/agently-mail"
+			},
+			{
+				name: "manage-taskboard",
+				description: "Read and write the Codex / e-taskboard task ledger.",
+				location: "~/.dsh/skills/manage-taskboard"
+			},
+			{
+				name: "qiaomu-design",
+				description: "Opinionated design review and rebuild advisory skill.",
+				location: "~/.dsh/skills/qiaomu-design"
+			}
+		];
+		//#endregion
 		//#region src/modules/session-id/client.ts
 		function isString(value) {
 			return typeof value === "string";
@@ -440,6 +523,138 @@ window.__ModuleLoader__.load({
 					message: `execCommand threw: ${error instanceof Error ? error.message : String(error)}`
 				};
 			}
+		}
+		//#endregion
+		//#region src/modules/desktop-launcher/client.ts
+		/**
+		* Validate a URL string enough that we can copy it confidently. We accept
+		* http(s) and mailto schemes; everything else (javascript:, file:, data:)
+		* is rejected so the user does not accidentally ship a clipboard payload
+		* that an external program would execute.
+		*/
+		function isLaunchableUrl(raw) {
+			const trimmed = raw.trim();
+			if (trimmed.length === 0) return false;
+			if (trimmed.startsWith("https://") || trimmed.startsWith("http://")) return true;
+			if (trimmed.startsWith("mailto:")) return true;
+			return false;
+		}
+		async function openOrCopyUrl(raw, copy) {
+			const trimmed = raw.trim();
+			if (!isLaunchableUrl(trimmed)) return {
+				ok: false,
+				message: "unsupported scheme"
+			};
+			return await copy(trimmed);
+		}
+		//#endregion
+		//#region src/modules/plugin-manager/client.ts
+		/**
+		* Light YAML extractor for the cordis patch format the DSH loader emits.
+		* We do not depend on a YAML parser (the plugin stays runtime-dep-free);
+		* this walker handles the subset we care about: top-level `insert:`
+		* lists of `- id: ... -- optional name: ...` mappings.
+		*/
+		function parseCordisPatch(source) {
+			const rows = [];
+			const unrecognized = [];
+			const insertBlocks = source.split(/\n-?\s*insert:\s*/).slice(1);
+			for (const block of insertBlocks) {
+				const segment = block.split(/\n-?\s*(?:-?\s*insert:|[a-z]+:)/)[0] ?? block;
+				const idMatch = segment.match(/^\s*-\s*id:\s*([^\s#]+)/);
+				if (idMatch === null) {
+					const firstLine = segment.split("\n")[0]?.trim() ?? "";
+					if (firstLine.length > 0) unrecognized.push(firstLine);
+					continue;
+				}
+				const row = {
+					id: idMatch[1],
+					kind: "insert"
+				};
+				const nameMatch = segment.match(/\n\s*name:\s*([^\n#]+)/);
+				if (nameMatch !== null) row.name = nameMatch[1].trim();
+				rows.push(row);
+			}
+			return {
+				rows,
+				unrecognized
+			};
+		}
+		//#endregion
+		//#region src/modules/git-graph/client.ts
+		function readGitGraphState() {
+			return { status: "requires-host" };
+		}
+		//#endregion
+		//#region src/modules/task-board/client.ts
+		const TASK_STORAGE_KEY = "dsh-ice-tools.tasks.v1";
+		function safeStorage() {
+			if (typeof window === "undefined" || typeof window.localStorage === "undefined") return void 0;
+			return window.localStorage;
+		}
+		function loadTasks() {
+			const store = safeStorage();
+			if (store === void 0) return [];
+			const raw = store.getItem(TASK_STORAGE_KEY);
+			if (raw === null) return [];
+			try {
+				const parsed = JSON.parse(raw);
+				if (!Array.isArray(parsed)) return [];
+				const tasks = [];
+				for (const item of parsed) {
+					if (typeof item !== "object" || item === null) continue;
+					const candidate = item;
+					if (typeof candidate.id !== "string" || typeof candidate.title !== "string") continue;
+					if (typeof candidate.createdAt !== "number") continue;
+					const done = candidate.done === true;
+					tasks.push({
+						id: candidate.id,
+						title: candidate.title,
+						done,
+						createdAt: candidate.createdAt
+					});
+				}
+				return tasks;
+			} catch {
+				return [];
+			}
+		}
+		function persist(tasks) {
+			const store = safeStorage();
+			if (store === void 0) return;
+			try {
+				store.setItem(TASK_STORAGE_KEY, JSON.stringify(tasks));
+			} catch {}
+		}
+		function addTask(tasks, title) {
+			const trimmed = title.trim();
+			if (trimmed.length === 0) return tasks;
+			const updated = [{
+				id: `t${Date.now().toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`,
+				title: trimmed,
+				done: false,
+				createdAt: Date.now()
+			}, ...tasks];
+			persist(updated);
+			return updated;
+		}
+		function toggleTask(tasks, id) {
+			const updated = tasks.map((task) => task.id === id ? {
+				...task,
+				done: !task.done
+			} : task);
+			persist(updated);
+			return updated;
+		}
+		function removeTask(tasks, id) {
+			const updated = tasks.filter((task) => task.id !== id);
+			persist(updated);
+			return updated;
+		}
+		//#endregion
+		//#region src/modules/chat-recovery/client.ts
+		function readChatRecoveryState() {
+			return { status: "requires-host" };
 		}
 		//#endregion
 		//#region src/modules/settings-hub/client.ts
@@ -714,8 +929,264 @@ window.__ModuleLoader__.load({
 			return (0, react.createElement)("section", {
 				"data-dsh-plugin": "ice-tools",
 				style: sectionStyle
-			}, rows, doctorBlock, sessionIdBlock(sessions, sessionsError, sessionsRunning, copyFlash, dict.sessionId, onRefreshSessions, onCopySession));
+			}, rows, doctorBlock, sessionIdBlock(sessions, sessionsError, sessionsRunning, copyFlash, dict.sessionId, onRefreshSessions, onCopySession), (0, react.createElement)(SkillExplorerBlock, {
+				key: "skill-explorer",
+				dict
+			}), (0, react.createElement)(DesktopLauncherBlock, {
+				key: "desktop-launcher",
+				dict
+			}), (0, react.createElement)(PluginManagerBlock, {
+				key: "plugin-manager",
+				dict
+			}), (0, react.createElement)(GitGraphBlock, {
+				key: "git-graph",
+				dict
+			}), (0, react.createElement)(TaskBoardBlock, {
+				key: "task-board",
+				dict
+			}), (0, react.createElement)(ChatRecoveryBlock, {
+				key: "chat-recovery",
+				dict
+			}));
 		}
+		function SkillExplorerBlock({ dict }) {
+			const sdict = dict.skillExplorer;
+			return (0, react.createElement)("div", {
+				key: "skill-explorer",
+				style: {
+					display: "flex",
+					flexDirection: "column",
+					gap: "8px",
+					padding: "8px 0"
+				},
+				"data-dsh-plugin": "ice-tools",
+				"data-dsh-part": "skill-explorer"
+			}, (0, react.createElement)("span", { style: { fontWeight: 600 } }, sdict.title), KNOWN_SKILLS.length === 0 ? (0, react.createElement)("span", { style: noteStyle }, sdict.empty) : (0, react.createElement)("div", {
+				style: {
+					display: "flex",
+					flexDirection: "column",
+					gap: "4px"
+				},
+				"data-dsh-plugin": "ice-tools",
+				"data-dsh-part": "skill-list"
+			}, KNOWN_SKILLS.map((entry) => (0, react.createElement)("div", {
+				key: entry.name,
+				style: {
+					display: "flex",
+					flexDirection: "column",
+					gap: "2px",
+					padding: "6px 10px",
+					borderRadius: "8px",
+					background: "var(--dsw-alias-bg-row, rgba(127,127,127,0.05))"
+				},
+				"data-dsh-skill": entry.name
+			}, (0, react.createElement)("span", { style: {
+				fontSize: "13px",
+				fontWeight: 500
+			} }, entry.name), (0, react.createElement)("span", { style: noteStyle }, entry.description), (0, react.createElement)("span", { style: {
+				...noteStyle,
+				fontFamily: "var(--dsw-alias-font-mono, ui-monospace, monospace)"
+			} }, `${sdict.location}: ${entry.location}`)))));
+		}
+		const inputStyle = {
+			padding: "6px 10px",
+			borderRadius: "8px",
+			border: "1px solid var(--dsw-alias-border, #ccc)",
+			background: "var(--dsw-alias-bg-input, #fff)",
+			color: "inherit",
+			fontSize: "13px"
+		};
+		function DesktopLauncherBlock({ dict }) {
+			const sdict = dict.desktopLauncher;
+			const [url, setUrl] = (0, react.useState)("");
+			const [outcome, setOutcome] = (0, react.useState)("");
+			const onOpen = () => {
+				openOrCopyUrl(url, copyToClipboard).then((result) => {
+					setOutcome(result.ok ? sdict.hint : result.message === "unsupported scheme" ? sdict.unsupported : result.message);
+				});
+			};
+			return (0, react.createElement)("div", {
+				key: "desktop-launcher",
+				style: {
+					display: "flex",
+					flexDirection: "column",
+					gap: "8px",
+					padding: "8px 0"
+				},
+				"data-dsh-plugin": "ice-tools",
+				"data-dsh-part": "desktop-launcher"
+			}, (0, react.createElement)("span", { style: { fontWeight: 600 } }, sdict.title), (0, react.createElement)("div", { style: {
+				display: "flex",
+				gap: "8px"
+			} }, (0, react.createElement)("input", {
+				type: "text",
+				value: url,
+				placeholder: sdict.placeholder,
+				style: {
+					...inputStyle,
+					flex: 1
+				},
+				onChange: (e) => setUrl(e.target.value),
+				onKeyDown: (e) => {
+					if (e.key === "Enter") onOpen();
+				},
+				"aria-label": sdict.title
+			}), (0, react.createElement)("button", {
+				type: "button",
+				style: buttonStyle,
+				onClick: onOpen,
+				disabled: !isLaunchableUrl(url)
+			}, sdict.open)), outcome ? (0, react.createElement)("span", { style: noteStyle }, outcome) : null);
+		}
+		function PluginManagerBlock({ dict }) {
+			const sdict = dict.pluginManager;
+			const parsed = parseCordisPatch(CORDIS_PATCH_SOURCE);
+			return (0, react.createElement)("div", {
+				key: "plugin-manager",
+				style: {
+					display: "flex",
+					flexDirection: "column",
+					gap: "8px",
+					padding: "8px 0"
+				},
+				"data-dsh-plugin": "ice-tools",
+				"data-dsh-part": "plugin-manager"
+			}, (0, react.createElement)("span", { style: { fontWeight: 600 } }, sdict.title), parsed.rows.length === 0 ? (0, react.createElement)("span", { style: noteStyle }, sdict.empty) : (0, react.createElement)("div", {
+				style: {
+					display: "flex",
+					flexDirection: "column",
+					gap: "4px"
+				},
+				"data-dsh-plugin": "ice-tools",
+				"data-dsh-part": "plugin-rows"
+			}, parsed.rows.map((row, index) => (0, react.createElement)("div", {
+				key: `${row.id}-${index}`,
+				style: {
+					display: "flex",
+					justifyContent: "space-between",
+					padding: "4px 8px",
+					borderRadius: "6px",
+					background: "var(--dsw-alias-bg-row, rgba(127,127,127,0.05))",
+					fontSize: "12px",
+					fontFamily: "var(--dsw-alias-font-mono, ui-monospace, monospace)"
+				},
+				"data-dsh-row-id": row.id
+			}, (0, react.createElement)("span", null, row.id), (0, react.createElement)("span", { style: { color: "var(--dsw-alias-label-secondary, #666)" } }, row.name ?? "")))));
+		}
+		function GitGraphBlock({ dict }) {
+			const sdict = dict.gitGraph;
+			const state = readGitGraphState();
+			return (0, react.createElement)("div", {
+				key: "git-graph",
+				style: {
+					display: "flex",
+					flexDirection: "column",
+					gap: "8px",
+					padding: "8px 0"
+				},
+				"data-dsh-plugin": "ice-tools",
+				"data-dsh-part": "git-graph"
+			}, (0, react.createElement)("span", { style: { fontWeight: 600 } }, sdict.title), (0, react.createElement)("span", { style: noteStyle }, state.status === "requires-host" ? sdict.note : ""));
+		}
+		function TaskBoardBlock({ dict }) {
+			const sdict = dict.taskBoard;
+			const [tasks, setTasks] = (0, react.useState)(() => loadTasks());
+			const [draft, setDraft] = (0, react.useState)("");
+			const onAdd = () => {
+				setTasks(addTask(tasks, draft));
+				setDraft("");
+			};
+			return (0, react.createElement)("div", {
+				key: "task-board",
+				style: {
+					display: "flex",
+					flexDirection: "column",
+					gap: "8px",
+					padding: "8px 0"
+				},
+				"data-dsh-plugin": "ice-tools",
+				"data-dsh-part": "task-board"
+			}, (0, react.createElement)("span", { style: { fontWeight: 600 } }, sdict.title), (0, react.createElement)("div", { style: {
+				display: "flex",
+				gap: "8px"
+			} }, (0, react.createElement)("input", {
+				type: "text",
+				value: draft,
+				placeholder: sdict.placeholder,
+				style: {
+					...inputStyle,
+					flex: 1
+				},
+				onChange: (e) => setDraft(e.target.value),
+				onKeyDown: (e) => {
+					if (e.key === "Enter") onAdd();
+				}
+			}), (0, react.createElement)("button", {
+				type: "button",
+				style: buttonStyle,
+				onClick: onAdd,
+				disabled: draft.trim().length === 0
+			}, sdict.add)), tasks.length === 0 ? (0, react.createElement)("span", { style: noteStyle }, sdict.empty) : (0, react.createElement)("div", {
+				style: {
+					display: "flex",
+					flexDirection: "column",
+					gap: "4px"
+				},
+				"data-dsh-plugin": "ice-tools",
+				"data-dsh-part": "task-list"
+			}, tasks.map((task) => (0, react.createElement)("div", {
+				key: task.id,
+				style: {
+					display: "grid",
+					gridTemplateColumns: "auto 1fr auto",
+					gap: "8px",
+					alignItems: "center",
+					padding: "4px 8px",
+					borderRadius: "6px",
+					background: "var(--dsw-alias-bg-row, rgba(127,127,127,0.05))"
+				},
+				"data-dsh-task": task.id
+			}, (0, react.createElement)("input", {
+				type: "checkbox",
+				checked: task.done,
+				onChange: () => setTasks(toggleTask(tasks, task.id))
+			}), (0, react.createElement)("span", { style: {
+				fontSize: "13px",
+				textDecoration: task.done ? "line-through" : "none",
+				color: task.done ? "var(--dsw-alias-label-secondary, #666)" : "inherit"
+			} }, task.title), (0, react.createElement)("button", {
+				type: "button",
+				style: {
+					...buttonStyle,
+					padding: "2px 6px",
+					fontSize: "12px"
+				},
+				onClick: () => setTasks(removeTask(tasks, task.id))
+			}, sdict.remove)))));
+		}
+		function ChatRecoveryBlock({ dict }) {
+			const sdict = dict.chatRecovery;
+			const state = readChatRecoveryState();
+			return (0, react.createElement)("div", {
+				key: "chat-recovery",
+				style: {
+					display: "flex",
+					flexDirection: "column",
+					gap: "8px",
+					padding: "8px 0"
+				},
+				"data-dsh-plugin": "ice-tools",
+				"data-dsh-part": "chat-recovery"
+			}, (0, react.createElement)("span", { style: { fontWeight: 600 } }, sdict.title), (0, react.createElement)("span", { style: noteStyle }, state.status === "requires-host" ? sdict.note : ""));
+		}
+		const CORDIS_PATCH_SOURCE = `- insert:
+    - id: tool-subagent-codex
+      name: '@deepseek-ai/dsh-tool-subagent'
+      config:
+        provider: codex
+        toolName: subagent_codex
+        backgroundMode: one-shot
+        maxDepth: provider-managed`;
 		/**
 		* Register the ICE Tools settings page in the canonical `settings.section`
 		* slot, which the settings shell projects into its navigation and content
