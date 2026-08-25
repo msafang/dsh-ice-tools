@@ -127,6 +127,8 @@ export const en: {
     open: 'Open',
     hint: 'Copied to clipboard; paste in your system browser to open.',
     unsupported: 'Unsupported URL scheme.',
+    historyEmpty: 'No history for this scheme.',
+    remove: 'Remove',
   },
   pluginManager: {
     title: 'Plugin Manager',

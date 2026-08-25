@@ -73,6 +73,8 @@ export interface DesktopLauncherDictionary {
   readonly open: string
   readonly hint: string
   readonly unsupported: string
+  readonly historyEmpty: string
+  readonly remove: string
 }
 
 export const desktopLauncher: DesktopLauncherDictionary = {
@@ -81,6 +83,8 @@ export const desktopLauncher: DesktopLauncherDictionary = {
   open: '打开',
   hint: '已复制到剪贴板，请在系统浏览器中打开。',
   unsupported: '不支持的 URL 协议。',
+  historyEmpty: '该协议下没有历史记录。',
+  remove: '删除',
 }
 
 export interface PluginManagerDictionary {

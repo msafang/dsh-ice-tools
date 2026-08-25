@@ -5,7 +5,7 @@ import { DEFAULT_ENABLED, MODULE_NAMES, normalizeEnabled, type EnabledModules, t
 import { runDoctor, type DoctorRun } from '../doctor/client.ts'
 import { KNOWN_SKILLS, type SkillEntry } from '../skill-explorer/client.ts'
 import { copyToClipboard, listSessions, type SessionSummary } from '../session-id/client.ts'
-import { isLaunchableUrl, openOrCopyUrl } from '../desktop-launcher/client.ts'
+import { isLaunchableUrl, loadHistory, openOrCopyUrl, QUICK_PRESETS, recordHistory, removeHistory, type UrlScheme } from '../desktop-launcher/client.ts'
 import { parseCordisPatch } from '../plugin-manager/client.ts'
 import { readGitGraphState } from '../git-graph/client.ts'
 import { addTask, loadTasks, removeTask, toggleTask, type Task } from '../task-board/client.ts'
@@ -291,7 +291,7 @@ function IceToolsSection(props: IceToolsSectionProps): ReactElement {
     blockFor('doctor', createElement(DoctorBlock, { key: 'doctor', dict, ctx })),
     blockFor('sessionId', createElement(SessionIdBlock, { key: 'session-id', dict, ctx })),
     blockFor('skillExplorer', createElement(SkillExplorerBlock, { key: 'skill-explorer', dict })),
-    blockFor('desktopLauncher', createElement(DesktopLauncherBlock, { key: 'desktop-launcher', dict })),
+    blockFor('desktopLauncher', createElement(DesktopLauncherBlock, { key: 'desktop-launcher', dict, ctx })),
     blockFor('pluginManager', createElement(PluginManagerBlock, { key: 'plugin-manager', dict })),
     blockFor('gitGraph', createElement(GitGraphBlock, { key: 'git-graph', dict })),
     blockFor('taskBoard', createElement(TaskBoardBlock, { key: 'task-board', dict })),
@@ -489,15 +489,25 @@ const inputStyle: CSSProperties = {
   fontSize: '13px',
 }
 
-function DesktopLauncherBlock({ dict }: { readonly dict: typeof zh }): ReactElement {
+function DesktopLauncherBlock({ dict, ctx }: { readonly dict: typeof zh; readonly ctx: ClientContext | undefined }): ReactElement {
   const sdict = dict.desktopLauncher
   const [url, setUrl] = useState('')
   const [outcome, setOutcome] = useState<string>('')
-  const onOpen = (): void => {
-    void openOrCopyUrl(url, copyToClipboard).then((result) => {
-      setOutcome(result.ok ? sdict.hint : result.message === 'unsupported scheme' ? sdict.unsupported : result.message)
+  const [history, setHistory] = useState(() => loadHistory())
+  const [filter, setFilter] = useState<'all' | UrlScheme>('all')
+  const onOpen = (raw: string = url): void => {
+    void openOrCopyUrl(raw, copyToClipboard).then((result) => {
+      if (result.ok) {
+        setHistory(recordHistory(history, raw))
+        setOutcome(sdict.hint)
+      } else if (result.message === 'unsupported scheme') {
+        setOutcome(sdict.unsupported)
+      } else {
+        setOutcome(result.message)
+      }
     })
   }
+  const visible = filter === 'all' ? history : history.filter((entry: { scheme: UrlScheme }) => entry.scheme === filter)
   return createElement('div', {
     key: 'desktop-launcher',
     style: { display: 'flex', flexDirection: 'column', gap: '8px', padding: '8px 0' },
@@ -518,12 +528,111 @@ function DesktopLauncherBlock({ dict }: { readonly dict: typeof zh }): ReactElem
       createElement('button', {
         type: 'button',
         style: buttonStyle,
-        onClick: onOpen,
+        onClick: () => onOpen(),
         disabled: !isLaunchableUrl(url),
       }, sdict.open),
     ),
+    createElement('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
+      QUICK_PRESETS.map((preset: { id: string; label: { en: string; zh: string }; placeholder: string }) =>
+        createElement('button', {
+          key: preset.id,
+          type: 'button',
+          style: { ...buttonStyle, padding: '4px 8px', fontSize: '12px' },
+          onClick: () => setUrl(preset.placeholder),
+          title: preset.placeholder,
+          'data-dsh-preset': preset.id,
+        }, preset.label[activeLocale(ctx)] ?? preset.label.en),
+      ),
+    ),
+    history.length > 0
+      ? createElement('div', {
+        style: { display: 'flex', flexDirection: 'column', gap: '4px' },
+        'data-dsh-plugin': 'ice-tools',
+        'data-dsh-part': 'launcher-history',
+      },
+        createElement('div', { style: { display: 'flex', gap: '4px', flexWrap: 'wrap' } },
+          (['all', 'https', 'http', 'mailto'] as const).map((option) =>
+            createElement('button', {
+              key: option,
+              type: 'button',
+              style: {
+                ...buttonStyle,
+                padding: '2px 8px',
+                fontSize: '12px',
+                background: filter === option ? 'var(--dsw-alias-bg-elevated, #ddd)' : undefined,
+              },
+              onClick: () => setFilter(option),
+              'data-dsh-filter': option,
+            }, option),
+          ),
+        ),
+        visible.length === 0
+          ? createElement('span', { style: noteStyle }, sdict.historyEmpty)
+          : createElement('div', {
+            style: { display: 'flex', flexDirection: 'column', gap: '2px' },
+          },
+            visible.map((entry: { url: string; scheme: UrlScheme; usedAt: number }) =>
+              createElement('div', {
+                key: entry.url,
+                style: {
+                  display: 'grid',
+                  gridTemplateColumns: '1fr auto auto',
+                  gap: '8px',
+                  alignItems: 'center',
+                  padding: '4px 8px',
+                  borderRadius: '6px',
+                  background: 'var(--dsw-alias-bg-row, rgba(127,127,127,0.05))',
+                  fontSize: '12px',
+                },
+                'data-dsh-history-url': entry.url,
+              },
+                createElement('code', {
+                  style: {
+                    fontFamily: 'var(--dsw-alias-font-mono, ui-monospace, monospace)',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  },
+                  onClick: () => setUrl(entry.url),
+                }, entry.url),
+                createElement('button', {
+                  type: 'button',
+                  style: { ...buttonStyle, padding: '2px 8px', fontSize: '12px' },
+                  onClick: () => onOpen(entry.url),
+                }, sdict.open),
+                createElement('button', {
+                  type: 'button',
+                  style: { ...buttonStyle, padding: '2px 8px', fontSize: '12px' },
+                  onClick: () => setHistory(removeHistory(history, entry.url)),
+                  'aria-label': sdict.remove,
+                }, '×'),
+              ),
+            ),
+          ),
+      )
+      : null,
     outcome ? createElement('span', { style: noteStyle }, outcome) : null,
   )
+}
+
+function localeForPreset(): 'en' | 'zh' {
+  // Best-effort: the desktopLauncher block does not own the locale
+  // runtime, so it picks the matching label on the inline currentLocale
+  // navigator hint. Tests fall back to English.
+  if (typeof navigator === 'undefined') return 'en'
+  const lang = navigator.language?.toLowerCase() ?? 'en'
+  return lang.startsWith('zh') ? 'zh' : 'en'
+}
+
+function activeLocale(ctx: ClientContext | undefined): 'en' | 'zh' {
+  if (ctx === undefined) return localeForPreset()
+  const runtime = (ctx as unknown as { locale?: { getSnapshot(): { active: string } } }).locale
+  if (runtime === undefined) return localeForPreset()
+  try {
+    const active = runtime.getSnapshot().active
+    return active.toLowerCase().startsWith('zh') ? 'zh' : 'en'
+  } catch {
+    return localeForPreset()
+  }
 }
 
 function PluginManagerBlock({ dict }: { readonly dict: typeof zh }): ReactElement {
