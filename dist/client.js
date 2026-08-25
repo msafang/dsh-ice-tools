@@ -144,7 +144,22 @@ window.__ModuleLoader__.load({
 				add: "Add",
 				done: "Done",
 				remove: "Remove",
-				empty: "No tasks yet."
+				empty: "No tasks yet.",
+				priority: "Priority",
+				priorityHigh: "High",
+				priorityMedium: "Medium",
+				priorityLow: "Low",
+				search: "Search tasks...",
+				filterAll: "All",
+				filterOpen: "Open",
+				filterDone: "Done",
+				filterOverdue: "Overdue",
+				overdue: "Overdue",
+				blocked: "Blocked",
+				moveUp: "Move up",
+				moveDown: "Move down",
+				exportJson: "Export JSON",
+				exportMarkdown: "Export Markdown"
 			},
 			chatRecovery: {
 				title: "Chat Recovery",
@@ -289,7 +304,22 @@ window.__ModuleLoader__.load({
 				add: "添加",
 				done: "完成",
 				remove: "删除",
-				empty: "没有任务。"
+				empty: "没有任务。",
+				priority: "优先级",
+				priorityHigh: "高",
+				priorityMedium: "中",
+				priorityLow: "低",
+				search: "搜索任务...",
+				filterAll: "全部",
+				filterOpen: "未完成",
+				filterDone: "已完成",
+				filterOverdue: "已逾期",
+				overdue: "已逾期",
+				blocked: "被阻塞",
+				moveUp: "上移",
+				moveDown: "下移",
+				exportJson: "导出 JSON",
+				exportMarkdown: "导出 Markdown"
 			},
 			chatRecovery: {
 				title: "对话恢复",
@@ -952,9 +982,62 @@ window.__ModuleLoader__.load({
 		//#endregion
 		//#region src/modules/task-board/client.ts
 		const TASK_STORAGE_KEY = "dsh-ice-tools.tasks.v1";
+		const TASK_TEMPLATES = [
+			{
+				id: "bug",
+				title: "Fix bug",
+				priority: "high"
+			},
+			{
+				id: "review",
+				title: "Review PR",
+				priority: "medium",
+				dueOffsetDays: 1
+			},
+			{
+				id: "docs",
+				title: "Update docs",
+				priority: "low",
+				dueOffsetDays: 7
+			},
+			{
+				id: "test",
+				title: "Write test",
+				priority: "medium",
+				dueOffsetDays: 3
+			}
+		];
+		const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 		function safeStorage() {
 			if (typeof window === "undefined" || typeof window.localStorage === "undefined") return void 0;
 			return window.localStorage;
+		}
+		function isValidIsoDate(value) {
+			return typeof value === "string" && ISO_DATE.test(value);
+		}
+		function todayIso() {
+			const now = /* @__PURE__ */ new Date();
+			return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+		}
+		function isoOffsetDays(days) {
+			const now = /* @__PURE__ */ new Date();
+			now.setDate(now.getDate() + days);
+			return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+		}
+		function isOverdue(task, today = todayIso()) {
+			if (task.done) return false;
+			if (!isValidIsoDate(task.dueDate)) return false;
+			return task.dueDate < today;
+		}
+		/** A task is blocked when any of its blocker IDs is still open in the task list. */
+		function isBlocked(task, allTasks) {
+			const ids = task.blockedBy;
+			if (ids === void 0 || ids.length === 0) return false;
+			for (const id of ids) {
+				const blocker = allTasks.find((t) => t.id === id);
+				if (blocker !== void 0 && !blocker.done) return true;
+			}
+			return false;
 		}
 		function loadTasks() {
 			const store = safeStorage();
@@ -970,12 +1053,20 @@ window.__ModuleLoader__.load({
 					const candidate = item;
 					if (typeof candidate.id !== "string" || typeof candidate.title !== "string") continue;
 					if (typeof candidate.createdAt !== "number") continue;
+					const priority = candidate.priority === "high" || candidate.priority === "medium" || candidate.priority === "low" ? candidate.priority : "medium";
 					const done = candidate.done === true;
+					const order = typeof candidate.order === "number" ? candidate.order : tasks.length;
+					const dueDate = isValidIsoDate(candidate.dueDate) ? candidate.dueDate : void 0;
+					const blockedBy = Array.isArray(candidate.blockedBy) ? candidate.blockedBy.filter((id) => typeof id === "string") : void 0;
 					tasks.push({
 						id: candidate.id,
 						title: candidate.title,
 						done,
-						createdAt: candidate.createdAt
+						createdAt: candidate.createdAt,
+						priority,
+						order,
+						...dueDate !== void 0 ? { dueDate } : {},
+						...blockedBy !== void 0 && blockedBy.length > 0 ? { blockedBy } : {}
 					});
 				}
 				return tasks;
@@ -990,14 +1081,23 @@ window.__ModuleLoader__.load({
 				store.setItem(TASK_STORAGE_KEY, JSON.stringify(tasks));
 			} catch {}
 		}
-		function addTask(tasks, title) {
+		function newId() {
+			return `t${Date.now().toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`;
+		}
+		function addTask(tasks, title, options = {}) {
 			const trimmed = title.trim();
 			if (trimmed.length === 0) return tasks;
+			const priority = options.priority ?? "medium";
+			const dueDate = isValidIsoDate(options.dueDate) ? options.dueDate : void 0;
+			const minOrder = tasks.reduce((acc, task) => Math.min(acc, task.order), 0);
 			const updated = [{
-				id: `t${Date.now().toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`,
+				id: newId(),
 				title: trimmed,
 				done: false,
-				createdAt: Date.now()
+				createdAt: Date.now(),
+				priority,
+				order: minOrder - 1,
+				...dueDate !== void 0 ? { dueDate } : {}
 			}, ...tasks];
 			persist(updated);
 			return updated;
@@ -1014,6 +1114,80 @@ window.__ModuleLoader__.load({
 			const updated = tasks.filter((task) => task.id !== id);
 			persist(updated);
 			return updated;
+		}
+		function setDueDate(tasks, id, dueDate) {
+			const updated = tasks.map((task) => task.id === id ? dueDate === void 0 ? (() => {
+				const { dueDate: _drop, ...rest } = task;
+				return rest;
+			})() : {
+				...task,
+				dueDate
+			} : task);
+			persist(updated);
+			return updated;
+		}
+		function moveTask(tasks, id, direction) {
+			const index = tasks.findIndex((task) => task.id === id);
+			if (index === -1) return tasks;
+			const target = index + direction;
+			if (target < 0 || target >= tasks.length) return tasks;
+			const next = tasks.slice();
+			const swap = next[index];
+			next[index] = next[target];
+			next[target] = swap;
+			return next.map((task, idx) => idx === index || idx === target ? {
+				...task,
+				order: tasks[idx].order
+			} : task).map((task) => task).map((task, idx) => ({
+				...task,
+				order: idx
+			}));
+		}
+		/** Filter the task list through a status selector and a search query. */
+		function filterTasks(tasks, status, query, today = todayIso()) {
+			const needle = query.trim().toLowerCase();
+			const predicate = (task) => {
+				if (status === "open" && task.done) return false;
+				if (status === "done" && !task.done) return false;
+				if (status === "overdue" && !isOverdue(task, today)) return false;
+				if (needle.length > 0 && !task.title.toLowerCase().includes(needle)) return false;
+				return true;
+			};
+			return tasks.filter(predicate);
+		}
+		/** Sort the task list: open tasks before done, higher priority first, then by order. */
+		function sortTasks(tasks) {
+			const priorityWeight = {
+				high: 0,
+				medium: 1,
+				low: 2
+			};
+			return tasks.slice().sort((a, b) => {
+				if (a.done !== b.done) return a.done ? 1 : -1;
+				const pa = priorityWeight[a.priority];
+				const pb = priorityWeight[b.priority];
+				if (pa !== pb) return pa - pb;
+				return a.order - b.order;
+			});
+		}
+		/** Export the task list as a stable JSON string. */
+		function exportJson(tasks) {
+			return JSON.stringify(tasks, null, 2);
+		}
+		/**
+		* Export the task list as a Markdown checklist. Open tasks render with
+		* `- [ ]`, done tasks with `- [x]`. Each row carries a `<!-- id: ... -->`
+		* comment so a future re-import can preserve identity.
+		*/
+		function exportMarkdown(tasks) {
+			const lines = [];
+			for (const task of tasks) {
+				const box = task.done ? "[x]" : "[ ]";
+				const due = task.dueDate === void 0 ? "" : ` (due ${task.dueDate})`;
+				const priority = `[${task.priority}]`;
+				lines.push(`- ${box} ${priority} ${task.title}${due} <!-- id: ${task.id} -->`);
+			}
+			return lines.join("\n");
 		}
 		//#endregion
 		//#region src/modules/chat-recovery/client.ts
@@ -1577,10 +1751,21 @@ window.__ModuleLoader__.load({
 			const sdict = dict.taskBoard;
 			const [tasks, setTasks] = (0, react.useState)(() => loadTasks());
 			const [draft, setDraft] = (0, react.useState)("");
+			const [priority, setPriority] = (0, react.useState)("medium");
+			const [status, setStatus] = (0, react.useState)("all");
+			const [query, setQuery] = (0, react.useState)("");
 			const onAdd = () => {
-				setTasks(addTask(tasks, draft));
+				setTasks(addTask(tasks, draft, { priority }));
 				setDraft("");
 			};
+			const onTemplate = (template) => {
+				const options = template.dueOffsetDays === void 0 ? { priority: template.priority } : {
+					priority: template.priority,
+					dueDate: isoOffsetDays(template.dueOffsetDays)
+				};
+				setTasks(addTask(tasks, template.title, options));
+			};
+			const filtered = sortTasks(filterTasks(tasks, status, query));
 			return (0, react.createElement)("div", {
 				key: "task-board",
 				style: {
@@ -1606,12 +1791,82 @@ window.__ModuleLoader__.load({
 				onKeyDown: (e) => {
 					if (e.key === "Enter") onAdd();
 				}
-			}), (0, react.createElement)("button", {
+			}), (0, react.createElement)("select", {
+				value: priority,
+				style: inputStyle,
+				onChange: (e) => setPriority(e.target.value),
+				"aria-label": sdict.priority
+			}, (0, react.createElement)("option", { value: "high" }, sdict.priorityHigh), (0, react.createElement)("option", { value: "medium" }, sdict.priorityMedium), (0, react.createElement)("option", { value: "low" }, sdict.priorityLow)), (0, react.createElement)("button", {
 				type: "button",
 				style: buttonStyle,
 				onClick: onAdd,
 				disabled: draft.trim().length === 0
-			}, sdict.add)), tasks.length === 0 ? (0, react.createElement)("span", { style: noteStyle }, sdict.empty) : (0, react.createElement)("div", {
+			}, sdict.add)), (0, react.createElement)("div", { style: {
+				display: "flex",
+				gap: "8px",
+				flexWrap: "wrap"
+			} }, TASK_TEMPLATES.map((template) => (0, react.createElement)("button", {
+				key: template.id,
+				type: "button",
+				style: {
+					...buttonStyle,
+					padding: "4px 8px",
+					fontSize: "12px"
+				},
+				onClick: () => onTemplate(template),
+				"data-dsh-template": template.id
+			}, template.title))), (0, react.createElement)("div", { style: {
+				display: "flex",
+				gap: "8px",
+				flexWrap: "wrap"
+			} }, (0, react.createElement)("input", {
+				type: "text",
+				value: query,
+				placeholder: sdict.search,
+				style: {
+					...inputStyle,
+					flex: 1,
+					minWidth: "120px"
+				},
+				onChange: (e) => setQuery(e.target.value),
+				"data-dsh-plugin": "ice-tools",
+				"data-dsh-part": "task-search"
+			}), [
+				"all",
+				"open",
+				"done",
+				"overdue"
+			].map((option) => (0, react.createElement)("button", {
+				key: option,
+				type: "button",
+				style: {
+					...buttonStyle,
+					padding: "2px 8px",
+					fontSize: "12px",
+					background: status === option ? "var(--dsw-alias-bg-elevated, #ddd)" : void 0
+				},
+				onClick: () => setStatus(option),
+				"data-dsh-filter": option
+			}, sdict[`filter${option[0].toUpperCase()}${option.slice(1)}`]))), (0, react.createElement)("div", { style: {
+				display: "flex",
+				gap: "8px"
+			} }, (0, react.createElement)("button", {
+				type: "button",
+				style: {
+					...buttonStyle,
+					padding: "4px 8px",
+					fontSize: "12px"
+				},
+				onClick: () => downloadExport(tasks, "json")
+			}, sdict.exportJson), (0, react.createElement)("button", {
+				type: "button",
+				style: {
+					...buttonStyle,
+					padding: "4px 8px",
+					fontSize: "12px"
+				},
+				onClick: () => downloadExport(tasks, "markdown")
+			}, sdict.exportMarkdown)), filtered.length === 0 ? (0, react.createElement)("span", { style: noteStyle }, sdict.empty) : (0, react.createElement)("div", {
 				style: {
 					display: "flex",
 					flexDirection: "column",
@@ -1619,35 +1874,103 @@ window.__ModuleLoader__.load({
 				},
 				"data-dsh-plugin": "ice-tools",
 				"data-dsh-part": "task-list"
-			}, tasks.map((task) => (0, react.createElement)("div", {
-				key: task.id,
-				style: {
-					display: "grid",
-					gridTemplateColumns: "auto 1fr auto",
-					gap: "8px",
-					alignItems: "center",
-					padding: "4px 8px",
-					borderRadius: "6px",
-					background: "var(--dsw-alias-bg-row, rgba(127,127,127,0.05))"
-				},
-				"data-dsh-task": task.id
-			}, (0, react.createElement)("input", {
-				type: "checkbox",
-				checked: task.done,
-				onChange: () => setTasks(toggleTask(tasks, task.id))
-			}), (0, react.createElement)("span", { style: {
-				fontSize: "13px",
-				textDecoration: task.done ? "line-through" : "none",
-				color: task.done ? "var(--dsw-alias-label-secondary, #666)" : "inherit"
-			} }, task.title), (0, react.createElement)("button", {
-				type: "button",
-				style: {
-					...buttonStyle,
+			}, filtered.map((task, idx) => {
+				const overdueFlag = isOverdue(task);
+				const blockedFlag = isBlocked(task, tasks);
+				return (0, react.createElement)("div", {
+					key: task.id,
+					style: {
+						display: "grid",
+						gridTemplateColumns: "auto auto 1fr auto auto auto auto auto",
+						gap: "8px",
+						alignItems: "center",
+						padding: "4px 8px",
+						borderRadius: "6px",
+						background: overdueFlag ? "rgba(180, 35, 24, 0.08)" : "var(--dsw-alias-bg-row, rgba(127,127,127,0.05))"
+					},
+					"data-dsh-task": task.id,
+					"data-dsh-priority": task.priority,
+					"data-dsh-overdue": overdueFlag ? "true" : "false",
+					"data-dsh-blocked": blockedFlag ? "true" : "false"
+				}, (0, react.createElement)("input", {
+					type: "checkbox",
+					checked: task.done,
+					disabled: blockedFlag && !task.done,
+					onChange: () => setTasks(toggleTask(tasks, task.id))
+				}), (0, react.createElement)("span", { style: {
+					fontSize: "11px",
+					fontWeight: 600,
 					padding: "2px 6px",
-					fontSize: "12px"
-				},
-				onClick: () => setTasks(removeTask(tasks, task.id))
-			}, sdict.remove)))));
+					borderRadius: "4px",
+					color: "#fff",
+					background: priorityColor(task.priority)
+				} }, sdict[`priority${task.priority[0].toUpperCase()}${task.priority.slice(1)}`]), (0, react.createElement)("span", { style: {
+					fontSize: "13px",
+					textDecoration: task.done ? "line-through" : "none",
+					color: overdueFlag ? "var(--dsw-alias-danger, #b42318)" : task.done ? "var(--dsw-alias-label-secondary, #666)" : "inherit"
+				} }, task.title), (0, react.createElement)("input", {
+					type: "date",
+					value: task.dueDate ?? "",
+					style: {
+						...inputStyle,
+						padding: "2px 6px",
+						fontSize: "12px"
+					},
+					onChange: (e) => {
+						const value = e.target.value;
+						setTasks(setDueDate(tasks, task.id, value === "" ? void 0 : value));
+					}
+				}), (0, react.createElement)("span", { style: {
+					fontSize: "11px",
+					color: "var(--dsw-alias-label-secondary, #666)"
+				} }, overdueFlag ? sdict.overdue : blockedFlag ? sdict.blocked : ""), (0, react.createElement)("button", {
+					type: "button",
+					style: {
+						...buttonStyle,
+						padding: "2px 4px",
+						fontSize: "11px"
+					},
+					disabled: idx === 0,
+					onClick: () => setTasks(moveTask(tasks, task.id, -1)),
+					"aria-label": sdict.moveUp
+				}, "↑"), (0, react.createElement)("button", {
+					type: "button",
+					style: {
+						...buttonStyle,
+						padding: "2px 4px",
+						fontSize: "11px"
+					},
+					disabled: idx === filtered.length - 1,
+					onClick: () => setTasks(moveTask(tasks, task.id, 1)),
+					"aria-label": sdict.moveDown
+				}, "↓"), (0, react.createElement)("button", {
+					type: "button",
+					style: {
+						...buttonStyle,
+						padding: "2px 6px",
+						fontSize: "12px"
+					},
+					onClick: () => setTasks(removeTask(tasks, task.id))
+				}, sdict.remove));
+			})));
+		}
+		function priorityColor(priority) {
+			if (priority === "high") return "#b42318";
+			if (priority === "medium") return "#a86b00";
+			return "#5a6b73";
+		}
+		function downloadExport(tasks, format) {
+			if (typeof window === "undefined") return;
+			const content = format === "json" ? exportJson(tasks) : exportMarkdown(tasks);
+			const blob = new Blob([content], { type: format === "json" ? "application/json" : "text/markdown" });
+			const url = URL.createObjectURL(blob);
+			const anchor = document.createElement("a");
+			anchor.href = url;
+			anchor.download = `dsh-ice-tools-tasks.${format}`;
+			document.body.appendChild(anchor);
+			anchor.click();
+			document.body.removeChild(anchor);
+			URL.revokeObjectURL(url);
 		}
 		function ChatRecoveryBlock({ dict }) {
 			const sdict = dict.chatRecovery;
