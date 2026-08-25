@@ -8,7 +8,7 @@ import { copyToClipboard, listSessions, type SessionSummary } from '../session-i
 import { isLaunchableUrl, loadHistory, openOrCopyUrl, QUICK_PRESETS, recordHistory, removeHistory, type UrlScheme } from '../desktop-launcher/client.ts'
 import { parseCordisPatch } from '../plugin-manager/client.ts'
 import { readGitGraphState } from '../git-graph/client.ts'
-import { addTask, loadTasks, removeTask, toggleTask, type Task } from '../task-board/client.ts'
+import { addTask, exportJson, exportMarkdown, filterTasks, isBlocked, isOverdue, isoOffsetDays, loadTasks, moveTask, removeTask, setDueDate, sortTasks, TASK_TEMPLATES, toggleTask, type StatusFilter, type Task, type TaskTemplate, type Priority } from '../task-board/client.ts'
 import { readChatRecoveryState } from '../chat-recovery/client.ts'
 import { en } from '../../i18n/en.ts'
 import { zh } from '../../i18n/zh.ts'
@@ -695,10 +695,20 @@ function TaskBoardBlock({ dict }: { readonly dict: typeof zh }): ReactElement {
   const sdict = dict.taskBoard
   const [tasks, setTasks] = useState<readonly Task[]>(() => loadTasks())
   const [draft, setDraft] = useState('')
+  const [priority, setPriority] = useState<Priority>('medium')
+  const [status, setStatus] = useState<StatusFilter>('all')
+  const [query, setQuery] = useState('')
   const onAdd = (): void => {
-    setTasks(addTask(tasks, draft))
+    setTasks(addTask(tasks, draft, { priority }))
     setDraft('')
   }
+  const onTemplate = (template: TaskTemplate): void => {
+    const options = template.dueOffsetDays === undefined
+      ? { priority: template.priority }
+      : { priority: template.priority, dueDate: isoOffsetDays(template.dueOffsetDays) }
+    setTasks(addTask(tasks, template.title, options))
+  }
+  const filtered = sortTasks(filterTasks(tasks, status, query))
   return createElement('div', {
     key: 'task-board',
     style: { display: 'flex', flexDirection: 'column', gap: '8px', padding: '8px 0' },
@@ -715,6 +725,16 @@ function TaskBoardBlock({ dict }: { readonly dict: typeof zh }): ReactElement {
         onChange: (e: { target: { value: string } }) => setDraft(e.target.value),
         onKeyDown: (e: { key: string }) => { if (e.key === 'Enter') onAdd() },
       }),
+      createElement('select', {
+        value: priority,
+        style: inputStyle,
+        onChange: (e: { target: { value: string } }) => setPriority(e.target.value as Priority),
+        'aria-label': sdict.priority,
+      },
+        createElement('option', { value: 'high' }, sdict.priorityHigh),
+        createElement('option', { value: 'medium' }, sdict.priorityMedium),
+        createElement('option', { value: 'low' }, sdict.priorityLow),
+      ),
       createElement('button', {
         type: 'button',
         style: buttonStyle,
@@ -722,48 +742,160 @@ function TaskBoardBlock({ dict }: { readonly dict: typeof zh }): ReactElement {
         disabled: draft.trim().length === 0,
       }, sdict.add),
     ),
-    tasks.length === 0
+    createElement('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
+      TASK_TEMPLATES.map((template) =>
+        createElement('button', {
+          key: template.id,
+          type: 'button',
+          style: { ...buttonStyle, padding: '4px 8px', fontSize: '12px' },
+          onClick: () => onTemplate(template),
+          'data-dsh-template': template.id,
+        }, template.title),
+      ),
+    ),
+    createElement('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
+      createElement('input', {
+        type: 'text',
+        value: query,
+        placeholder: sdict.search,
+        style: { ...inputStyle, flex: 1, minWidth: '120px' },
+        onChange: (e: { target: { value: string } }) => setQuery(e.target.value),
+        'data-dsh-plugin': 'ice-tools',
+        'data-dsh-part': 'task-search',
+      }),
+      (['all', 'open', 'done', 'overdue'] as const).map((option) =>
+        createElement('button', {
+          key: option,
+          type: 'button',
+          style: {
+            ...buttonStyle,
+            padding: '2px 8px',
+            fontSize: '12px',
+            background: status === option ? 'var(--dsw-alias-bg-elevated, #ddd)' : undefined,
+          },
+          onClick: () => setStatus(option),
+          'data-dsh-filter': option,
+        }, sdict[`filter${option[0]!.toUpperCase()}${option.slice(1)}` as keyof typeof sdict] as string),
+      ),
+    ),
+    createElement('div', { style: { display: 'flex', gap: '8px' } },
+      createElement('button', {
+        type: 'button',
+        style: { ...buttonStyle, padding: '4px 8px', fontSize: '12px' },
+        onClick: () => downloadExport(tasks, 'json'),
+      }, sdict.exportJson),
+      createElement('button', {
+        type: 'button',
+        style: { ...buttonStyle, padding: '4px 8px', fontSize: '12px' },
+        onClick: () => downloadExport(tasks, 'markdown'),
+      }, sdict.exportMarkdown),
+    ),
+    filtered.length === 0
       ? createElement('span', { style: noteStyle }, sdict.empty)
       : createElement('div', {
         style: { display: 'flex', flexDirection: 'column', gap: '4px' },
         'data-dsh-plugin': 'ice-tools',
         'data-dsh-part': 'task-list',
       },
-        tasks.map((task) =>
-          createElement('div', {
+        filtered.map((task, idx) => {
+          const overdueFlag = isOverdue(task)
+          const blockedFlag = isBlocked(task, tasks)
+          return createElement('div', {
             key: task.id,
             style: {
               display: 'grid',
-              gridTemplateColumns: 'auto 1fr auto',
+              gridTemplateColumns: 'auto auto 1fr auto auto auto auto auto',
               gap: '8px',
               alignItems: 'center',
               padding: '4px 8px',
               borderRadius: '6px',
-              background: 'var(--dsw-alias-bg-row, rgba(127,127,127,0.05))',
+              background: overdueFlag
+                ? 'rgba(180, 35, 24, 0.08)'
+                : 'var(--dsw-alias-bg-row, rgba(127,127,127,0.05))',
             },
             'data-dsh-task': task.id,
+            'data-dsh-priority': task.priority,
+            'data-dsh-overdue': overdueFlag ? 'true' : 'false',
+            'data-dsh-blocked': blockedFlag ? 'true' : 'false',
           },
             createElement('input', {
               type: 'checkbox',
               checked: task.done,
+              disabled: blockedFlag && !task.done,
               onChange: () => setTasks(toggleTask(tasks, task.id)),
             }),
             createElement('span', {
               style: {
+                fontSize: '11px',
+                fontWeight: 600,
+                padding: '2px 6px',
+                borderRadius: '4px',
+                color: '#fff',
+                background: priorityColor(task.priority),
+              },
+            }, sdict[`priority${task.priority[0]!.toUpperCase()}${task.priority.slice(1)}` as keyof typeof sdict] as string),
+            createElement('span', {
+              style: {
                 fontSize: '13px',
                 textDecoration: task.done ? 'line-through' : 'none',
-                color: task.done ? 'var(--dsw-alias-label-secondary, #666)' : 'inherit',
+                color: overdueFlag ? 'var(--dsw-alias-danger, #b42318)' : task.done ? 'var(--dsw-alias-label-secondary, #666)' : 'inherit',
               },
             }, task.title),
+            createElement('input', {
+              type: 'date',
+              value: task.dueDate ?? '',
+              style: { ...inputStyle, padding: '2px 6px', fontSize: '12px' },
+              onChange: (e: { target: { value: string } }) => {
+                const value = e.target.value
+                setTasks(setDueDate(tasks, task.id, value === '' ? undefined : value))
+              },
+            }),
+            createElement('span', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-secondary, #666)' } },
+              overdueFlag ? sdict.overdue : (blockedFlag ? sdict.blocked : ''),
+            ),
+            createElement('button', {
+              type: 'button',
+              style: { ...buttonStyle, padding: '2px 4px', fontSize: '11px' },
+              disabled: idx === 0,
+              onClick: () => setTasks(moveTask(tasks, task.id, -1)),
+              'aria-label': sdict.moveUp,
+            }, '↑'),
+            createElement('button', {
+              type: 'button',
+              style: { ...buttonStyle, padding: '2px 4px', fontSize: '11px' },
+              disabled: idx === filtered.length - 1,
+              onClick: () => setTasks(moveTask(tasks, task.id, 1)),
+              'aria-label': sdict.moveDown,
+            }, '↓'),
             createElement('button', {
               type: 'button',
               style: { ...buttonStyle, padding: '2px 6px', fontSize: '12px' },
               onClick: () => setTasks(removeTask(tasks, task.id)),
             }, sdict.remove),
-          ),
-        ),
+          )
+        }),
       ),
   )
+}
+
+function priorityColor(priority: Priority): string {
+  if (priority === 'high') return '#b42318'
+  if (priority === 'medium') return '#a86b00'
+  return '#5a6b73'
+}
+
+function downloadExport(tasks: readonly Task[], format: 'json' | 'markdown'): void {
+  if (typeof window === 'undefined') return
+  const content = format === 'json' ? exportJson(tasks) : exportMarkdown(tasks)
+  const blob = new Blob([content], { type: format === 'json' ? 'application/json' : 'text/markdown' })
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = `dsh-ice-tools-tasks.${format}`
+  document.body.appendChild(anchor)
+  anchor.click()
+  document.body.removeChild(anchor)
+  URL.revokeObjectURL(url)
 }
 
 function ChatRecoveryBlock({ dict }: { readonly dict: typeof zh }): ReactElement {

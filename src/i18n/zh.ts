@@ -114,6 +114,21 @@ export interface TaskBoardDictionary {
   readonly done: string
   readonly remove: string
   readonly empty: string
+  readonly priority: string
+  readonly priorityHigh: string
+  readonly priorityMedium: string
+  readonly priorityLow: string
+  readonly search: string
+  readonly filterAll: string
+  readonly filterOpen: string
+  readonly filterDone: string
+  readonly filterOverdue: string
+  readonly overdue: string
+  readonly blocked: string
+  readonly moveUp: string
+  readonly moveDown: string
+  readonly exportJson: string
+  readonly exportMarkdown: string
 }
 
 export const taskBoard: TaskBoardDictionary = {
@@ -123,6 +138,21 @@ export const taskBoard: TaskBoardDictionary = {
   done: '完成',
   remove: '删除',
   empty: '没有任务。',
+  priority: '优先级',
+  priorityHigh: '高',
+  priorityMedium: '中',
+  priorityLow: '低',
+  search: '搜索任务...',
+  filterAll: '全部',
+  filterOpen: '未完成',
+  filterDone: '已完成',
+  filterOverdue: '已逾期',
+  overdue: '已逾期',
+  blocked: '被阻塞',
+  moveUp: '上移',
+  moveDown: '下移',
+  exportJson: '导出 JSON',
+  exportMarkdown: '导出 Markdown',
 }
 
 export interface ChatRecoveryDictionary {
