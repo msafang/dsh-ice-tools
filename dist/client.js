@@ -5,43 +5,6 @@ window.__ModuleLoader__.load({
 		var exports = module.exports;
 		Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 		let react = require("react");
-		//#region src/core/dispatch/index.ts
-		/**
-		* Module identity and default enable state. This file used to also host a
-		* dispatch service that gated optional module mounts behind a runtime
-		* file-backed toggle. That layer has been removed: module mounting is now
-		* driven by the `ice-tools` settings scope on the client, and the host half
-		* only registers the settings namespace itself.
-		*/
-		const MODULE_NAMES = [
-			"settingsHub",
-			"pluginManager",
-			"chatRecovery",
-			"desktopLauncher",
-			"doctor",
-			"sessionId",
-			"skillExplorer",
-			"gitGraph",
-			"taskBoard"
-		];
-		const DEFAULT_ENABLED = {
-			settingsHub: true,
-			pluginManager: false,
-			chatRecovery: false,
-			desktopLauncher: false,
-			doctor: false,
-			sessionId: false,
-			skillExplorer: false,
-			gitGraph: false,
-			taskBoard: false
-		};
-		function normalizeEnabled(value) {
-			const normalized = { ...DEFAULT_ENABLED };
-			for (const name of MODULE_NAMES) if (typeof value?.[name] === "boolean") normalized[name] = value[name];
-			normalized.settingsHub = true;
-			return normalized;
-		}
-		//#endregion
 		//#region src/i18n/en.ts
 		const en = { modules: {
 			settingsHub: {
@@ -121,6 +84,43 @@ window.__ModuleLoader__.load({
 				description: "查看和管理工作任务。"
 			}
 		} };
+		//#endregion
+		//#region src/core/dispatch/index.ts
+		/**
+		* Module identity and default enable state. This file used to also host a
+		* dispatch service that gated optional module mounts behind a runtime
+		* file-backed toggle. That layer has been removed: module mounting is now
+		* driven by the `ice-tools` settings scope on the client, and the host half
+		* only registers the settings namespace itself.
+		*/
+		const MODULE_NAMES = [
+			"settingsHub",
+			"pluginManager",
+			"chatRecovery",
+			"desktopLauncher",
+			"doctor",
+			"sessionId",
+			"skillExplorer",
+			"gitGraph",
+			"taskBoard"
+		];
+		const DEFAULT_ENABLED = {
+			settingsHub: true,
+			pluginManager: false,
+			chatRecovery: false,
+			desktopLauncher: false,
+			doctor: false,
+			sessionId: false,
+			skillExplorer: false,
+			gitGraph: false,
+			taskBoard: false
+		};
+		function normalizeEnabled(value) {
+			const normalized = { ...DEFAULT_ENABLED };
+			for (const name of MODULE_NAMES) if (typeof value?.[name] === "boolean") normalized[name] = value[name];
+			normalized.settingsHub = true;
+			return normalized;
+		}
 		//#endregion
 		//#region src/modules/settings-hub/client.ts
 		function enableSettingsCard(props = {}) {
@@ -259,6 +259,7 @@ window.__ModuleLoader__.load({
 			ctx.slots.inject("settings.section", () => ctx.slots.register({
 				name: "settings.section",
 				id: "ice-tools",
+				priority: 100,
 				order: 10,
 				label: () => labelFor(locale.getSnapshot().active, "settingsHub"),
 				inject: injected
@@ -273,15 +274,6 @@ window.__ModuleLoader__.load({
 			"settingsScope",
 			"connection"
 		];
-		/**
-		* Client mounts for the optional modules. Modules without a `mount` yet are
-		* stubs; they are listed here so that toggling their enable key takes effect
-		* the next time the settings scope publishes.
-		*/
-		const CLIENT_MOUNTS = { settingsHub: mount };
-		function disposeAll(disposers) {
-			for (let index = disposers.length - 1; index >= 0; index -= 1) disposers[index]();
-		}
 		function apply(ctx) {
 			ctx.effect(() => {
 				const disposer = ctx.locale?.register("ice-tools", {
@@ -290,38 +282,8 @@ window.__ModuleLoader__.load({
 				});
 				return typeof disposer === "function" ? disposer : void 0;
 			}, "dsh-ice-tools client locale register");
-			ctx.effect(() => {
-				const bound = ctx.settingsScope.bind({
-					namespace: "ice-tools",
-					decode: (section) => {
-						if (typeof section !== "object" || section === null) return void 0;
-						return { enabled: normalizeEnabled(section.enabled) };
-					}
-				});
-				let disposers = [];
-				const remount = () => {
-					disposeAll(disposers);
-					const next = {
-						...DEFAULT_ENABLED,
-						...bound.getSnapshot().value?.enabled ?? {}
-					};
-					const fresh = [];
-					for (const name of MODULE_NAMES) {
-						if (!next[name]) continue;
-						const mount = CLIENT_MOUNTS[name];
-						if (mount === void 0) continue;
-						const disposer = mount(ctx);
-						if (typeof disposer === "function") fresh.push(disposer);
-					}
-					disposers = fresh;
-				};
-				remount();
-				const off = bound.subscribe(remount);
-				return () => {
-					off();
-					disposeAll(disposers);
-				};
-			}, "dsh-ice-tools client mounts");
+			const settingsHubDisposer = mount(ctx);
+			if (typeof settingsHubDisposer === "function") ctx.effect(() => settingsHubDisposer, "dsh-ice-tools settings hub");
 		}
 		//#endregion
 		exports.apply = apply;

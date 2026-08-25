@@ -1,23 +1,4 @@
-//#region src/core/dsh-adapter/index.ts
-/**
-* Register one settings namespace through the injected host settings service.
-* The provider exposes `register(ns, schema, { base })` (there is no
-* `installSettingsSection` method on the service — that is a standalone
-* helper in @deepseek-ai/dsh-settings), so the wiring mirrors the upstream
-* helper: point the source thunk at the registered scope and forward change
-* notifications through `watch`.
-*/
-function installSettingsSection(ctx, namespace, schema, defaults, hooks) {
-	const scope = ctx.get("settings")?.register?.(namespace, schema, { base: defaults });
-	if (scope === void 0) return () => {};
-	hooks.setSource?.(() => scope.get());
-	hooks.onChange?.();
-	const offWatch = scope.watch(() => hooks.onChange?.());
-	return () => {
-		if (typeof offWatch === "function") offWatch();
-	};
-}
-//#endregion
+import Schema from "@deepseek-ai/schemastery";
 //#region src/core/dispatch/index.ts
 /**
 * Module identity and default enable state. This file used to also host a
@@ -56,24 +37,27 @@ function normalizeEnabled(value) {
 }
 //#endregion
 //#region src/modules/settings-hub/index.ts
-const Config = Object.assign((value) => {
-	return { enabled: normalizeEnabled((value ?? {}).enabled) };
-}, { toJSON: () => ({
-	type: "object",
-	props: {}
-}) });
+/**
+* The settings schema for the `ice-tools` namespace. Schemastery is the same
+* DSL the upstream SettingsProvider registers against, so the provider can
+* validate writes and serialize via `toJSON()` for the configuration surface.
+*
+* `enabled` is a permissive dict: any module key is accepted with a boolean
+* value. `normalizeEnabled` is the canonical source of truth for the
+* settingsHub lock and missing-key defaults.
+*/
+const Config = Schema.object({ enabled: Schema.dict(Schema.boolean()) });
 const defaults = { enabled: { ...DEFAULT_ENABLED } };
-/** Register the top-level bilingual settings section and return its disposer. */
+/** Register the top-level bilingual settings section through the host provider. */
 function apply$1(ctx) {
-	let source = () => defaults;
-	return installSettingsSection(ctx, "ice-tools", Config, defaults, {
-		setSource: (current) => {
-			source = current;
-		},
-		onChange: () => {
-			source();
-		}
+	const settings = ctx.get("settings");
+	if (settings?.register === void 0) return () => {};
+	const scope = settings.register("ice-tools", Config, { base: defaults });
+	scope.get();
+	scope.watch(() => {
+		normalizeEnabled(scope.get().enabled);
 	});
+	return () => {};
 }
 //#endregion
 //#region src/index.ts
