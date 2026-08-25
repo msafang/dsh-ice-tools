@@ -24,6 +24,12 @@ export interface DoctorDictionary {
     readonly providerWritable: DoctorEntry
     readonly localeActive: DoctorEntry
     readonly enabledKeys: DoctorEntry
+    readonly bundleHash: DoctorEntry
+    readonly localeCoverage: DoctorEntry
+    readonly moduleLoader: DoctorEntry
+    readonly clipboardApi: DoctorEntry
+    readonly localStorageApi: DoctorEntry
+    readonly fetchApi: DoctorEntry
   }
 }
 
@@ -159,6 +165,30 @@ export const doctor: DoctorDictionary = {
     enabledKeys: {
       label: 'Enabled 键完整',
       detail: '解析后的 section 包含所有模块键。',
+    },
+    bundleHash: {
+      label: 'Bundle 指纹',
+      detail: '当前 dist/client.js 与本地记录一致，避免缓存陈旧包。',
+    },
+    localeCoverage: {
+      label: '双语字典覆盖',
+      detail: '中文与英文字典模块键完全对齐。',
+    },
+    moduleLoader: {
+      label: '模块加载器',
+      detail: 'window.__ModuleLoader__ 已注册 dsh-ice-tools 工厂。',
+    },
+    clipboardApi: {
+      label: '剪贴板 API',
+      detail: 'navigator.clipboard.writeText 可用于复制会话 ID。',
+    },
+    localStorageApi: {
+      label: 'localStorage API',
+      detail: '可读写 localStorage，用于任务看板与 bundle 指纹。',
+    },
+    fetchApi: {
+      label: 'fetch API',
+      detail: 'fetch + AbortController 可用，连接 RPC 依赖此基元。',
     },
   },
 }

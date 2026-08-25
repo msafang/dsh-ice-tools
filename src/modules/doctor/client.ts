@@ -6,9 +6,17 @@
  * Every check runs over the already-injected Cordis services, so no host-side
  * service registration is required. The Host-registered schema and its
  * describe view are inspected through `connection.api.settings.describe`.
+ *
+ * A handful of checks inspect the local browser environment and the plugin's
+ * own integrity: a bundle-hash fingerprint under localStorage (so a stale
+ * bundle reads as Fail), bilingual parity of the locale dictionaries, the
+ * module loader registry, and a few platform APIs the rest of the plugin
+ * depends on (clipboard, localStorage, fetch).
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import { MODULE_NAMES, type ModuleName } from '../../core/dispatch/index.ts'
+import { en } from '../../i18n/en.ts'
+import { zh } from '../../i18n/zh.ts'
 
 export type CheckKey =
   | 'connection'
@@ -18,6 +26,12 @@ export type CheckKey =
   | 'providerWritable'
   | 'localeActive'
   | 'enabledKeys'
+  | 'bundleHash'
+  | 'localeCoverage'
+  | 'moduleLoader'
+  | 'clipboardApi'
+  | 'localStorageApi'
+  | 'fetchApi'
 
 export interface CheckResult {
   readonly key: CheckKey
@@ -53,6 +67,13 @@ interface DescribeView {
     schema?: unknown
   }>
 }
+
+/** Minimal untyped face over `window.__ModuleLoader__`. */
+interface ModuleLoaderLike {
+  [key: string]: unknown
+}
+
+const BUNDLE_HASH_STORAGE_KEY = 'dsh-ice-tools.bundleHash'
 
 /**
  * Read the full settings describe view through the loopback connection. The
@@ -93,6 +114,124 @@ function checkSchemaSerializable(schema: unknown): { pass: boolean; note: string
     return { pass: false, note: `schema is ${typeof schema}` }
   }
   return { pass: true, note: `shape: ${Object.keys(schema as object).slice(0, 3).join(', ')}` }
+}
+
+/** Browser-safe SHA-256 hex digest. Returns undefined if SubtleCrypto is unavailable. */
+async function sha256Hex(text: string): Promise<string | undefined> {
+  if (typeof crypto === 'undefined' || crypto.subtle === undefined) return undefined
+  try {
+    const bytes = new TextEncoder().encode(text)
+    const buffer = await crypto.subtle.digest('SHA-256', bytes)
+    const view = new Uint8Array(buffer)
+    let out = ''
+    for (let i = 0; i < view.length; i += 1) {
+      out += view[i]!.toString(16).padStart(2, '0')
+    }
+    return out
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Pull the bundle source from the page. The module loader may expose the
+ * factory at `window.__ModuleLoader__['dsh-ice-tools']`; failing that, we
+ * fall back to the URL of the script tag that loaded dist/client.js so the
+ * hash at least pins the source location (a server-side redeploy will flip
+ * it). Both paths together let the check work in the common DSH shipping
+ * setups without coupling to one host's loader shape.
+ */
+function readBundleSource(): string | undefined {
+  if (typeof window === 'undefined') return undefined
+  const loader = (window as unknown as { __ModuleLoader__?: ModuleLoaderLike }).__ModuleLoader__
+  const entry = loader?.['dsh-ice-tools']
+  if (typeof entry === 'string') return entry
+  if (entry !== undefined && typeof (entry as { source?: unknown }).source === 'string') {
+    return (entry as { source: string }).source
+  }
+  if (typeof document === 'undefined') return undefined
+  const scripts = document.querySelectorAll<HTMLScriptElement>('script[src*="dsh-ice-tools/client.js"]')
+  for (const script of scripts) {
+    const src = script.getAttribute('src')
+    if (src !== null) return `script:${src}`
+  }
+  return undefined
+}
+
+async function checkBundleHash(): Promise<{ pass: boolean; note: string }> {
+  if (typeof window === 'undefined') return { pass: false, note: 'no window' }
+  const source = readBundleSource()
+  if (source === undefined) return { pass: false, note: 'bundle source unavailable' }
+  const hash = await sha256Hex(source)
+  if (hash === undefined) return { pass: false, note: 'crypto.subtle unavailable' }
+  const stored = window.localStorage?.getItem(BUNDLE_HASH_STORAGE_KEY) ?? null
+  if (stored === null) {
+    try { window.localStorage?.setItem(BUNDLE_HASH_STORAGE_KEY, hash) } catch { /* ignore */ }
+    return { pass: true, note: `fingerprint recorded (${hash.slice(0, 8)}…)` }
+  }
+  return stored === hash
+    ? { pass: true, note: `match (${hash.slice(0, 8)}…)` }
+    : { pass: false, note: `stored ${stored.slice(0, 8)}… vs current ${hash.slice(0, 8)}…` }
+}
+
+function checkLocaleCoverage(): { pass: boolean; note: string } {
+  const zhKeys = new Set(Object.keys(zh.modules))
+  const enKeys = new Set(Object.keys(en.modules))
+  const missingInEn: string[] = []
+  for (const key of zhKeys) {
+    if (!enKeys.has(key)) missingInEn.push(key)
+  }
+  const missingInZh: string[] = []
+  for (const key of enKeys) {
+    if (!zhKeys.has(key)) missingInZh.push(key)
+  }
+  if (missingInEn.length === 0 && missingInZh.length === 0) {
+    return { pass: true, note: `${zhKeys.size} modules in both dictionaries` }
+  }
+  const parts: string[] = []
+  if (missingInEn.length > 0) parts.push(`missing in en: ${missingInEn.join(', ')}`)
+  if (missingInZh.length > 0) parts.push(`missing in zh: ${missingInZh.join(', ')}`)
+  return { pass: false, note: parts.join('; ') }
+}
+
+function checkModuleLoader(): { pass: boolean; note: string } {
+  if (typeof window === 'undefined') return { pass: false, note: 'no window' }
+  const loader = (window as unknown as { __ModuleLoader__?: ModuleLoaderLike }).__ModuleLoader__
+  if (loader === undefined) return { pass: false, note: 'window.__ModuleLoader__ is undefined' }
+  const registered = loader['dsh-ice-tools'] !== undefined
+  return registered
+    ? { pass: true, note: 'dsh-ice-tools factory registered' }
+    : { pass: false, note: 'loader present but dsh-ice-tools not registered' }
+}
+
+function checkClipboardApi(): { pass: boolean; note: string } {
+  if (typeof navigator === 'undefined') return { pass: false, note: 'no navigator' }
+  const writeText = navigator.clipboard?.writeText
+  if (typeof writeText !== 'function') return { pass: false, note: 'navigator.clipboard.writeText missing' }
+  return { pass: true, note: 'secure context API present' }
+}
+
+function checkLocalStorageApi(): { pass: boolean; note: string } {
+  if (typeof window === 'undefined') return { pass: false, note: 'no window' }
+  const store = window.localStorage
+  if (store === undefined) return { pass: false, note: 'window.localStorage undefined' }
+  const probeKey = `${BUNDLE_HASH_STORAGE_KEY}.probe`
+  try {
+    store.setItem(probeKey, '1')
+    const read = store.getItem(probeKey)
+    store.removeItem(probeKey)
+    return read === '1'
+      ? { pass: true, note: 'read/write/remove round-trip ok' }
+      : { pass: false, note: 'round-trip mismatch' }
+  } catch (error) {
+    return { pass: false, note: `threw: ${error instanceof Error ? error.message : String(error)}` }
+  }
+}
+
+function checkFetchApi(): { pass: boolean; note: string } {
+  if (typeof fetch !== 'function') return { pass: false, note: 'fetch is not a function' }
+  if (typeof AbortController !== 'function') return { pass: false, note: 'AbortController is not a function' }
+  return { pass: true, note: 'fetch + AbortController present' }
 }
 
 /**
@@ -173,6 +312,30 @@ export async function runDoctor(ctx: ClientContext): Promise<DoctorRun> {
     ? { pass: false, note: 'skipped: namespace not registered' }
     : checkEnabledKeys((iceTools as { value?: unknown }).value)
   results.push({ key: 'enabledKeys', pass: enabledCheck.pass, note: enabledCheck.note })
+
+  // 8. bundle fingerprint (client-only integrity check)
+  const bundleCheck = await checkBundleHash()
+  results.push({ key: 'bundleHash', pass: bundleCheck.pass, note: bundleCheck.note })
+
+  // 9. locale coverage (en vs zh parity)
+  const coverageCheck = checkLocaleCoverage()
+  results.push({ key: 'localeCoverage', pass: coverageCheck.pass, note: coverageCheck.note })
+
+  // 10. module loader registry entry
+  const loaderCheck = checkModuleLoader()
+  results.push({ key: 'moduleLoader', pass: loaderCheck.pass, note: loaderCheck.note })
+
+  // 11. clipboard API
+  const clipboardCheck = checkClipboardApi()
+  results.push({ key: 'clipboardApi', pass: clipboardCheck.pass, note: clipboardCheck.note })
+
+  // 12. localStorage API
+  const storageCheck = checkLocalStorageApi()
+  results.push({ key: 'localStorageApi', pass: storageCheck.pass, note: storageCheck.note })
+
+  // 13. fetch + AbortController
+  const fetchCheck = checkFetchApi()
+  results.push({ key: 'fetchApi', pass: fetchCheck.pass, note: fetchCheck.note })
 
   return { results, ranAt: Date.now() }
 }

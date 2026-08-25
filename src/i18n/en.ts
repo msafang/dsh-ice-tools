@@ -80,6 +80,30 @@ export const en: {
         label: 'Enabled keys',
         detail: 'The resolved section has every module key present.',
       },
+      bundleHash: {
+        label: 'Bundle fingerprint',
+        detail: 'Current dist/client.js matches the locally recorded hash; no stale cache.',
+      },
+      localeCoverage: {
+        label: 'Locale coverage',
+        detail: 'The Chinese and English dictionaries cover the same module keys.',
+      },
+      moduleLoader: {
+        label: 'Module loader',
+        detail: 'window.__ModuleLoader__ has registered the dsh-ice-tools factory.',
+      },
+      clipboardApi: {
+        label: 'Clipboard API',
+        detail: 'navigator.clipboard.writeText is available for the Session ID copy button.',
+      },
+      localStorageApi: {
+        label: 'localStorage API',
+        detail: 'Read/write localStorage works; required by task board and bundle fingerprint.',
+      },
+      fetchApi: {
+        label: 'fetch API',
+        detail: 'fetch + AbortController present; required by the connection RPC.',
+      },
     },
   },
   sessionId: {
