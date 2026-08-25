@@ -3,6 +3,7 @@ import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type { Disposer, ReactElementLike, SettingsScope } from '../../core/dsh-adapter/index.ts'
 import { DEFAULT_ENABLED, MODULE_NAMES, normalizeEnabled, type EnabledModules, type IceConfig, type ModuleName } from '../../core/dispatch/index.ts'
 import { runDoctor, type DoctorRun } from '../doctor/client.ts'
+import { copyToClipboard, listSessions, type SessionSummary } from '../session-id/client.ts'
 import { en } from '../../i18n/en.ts'
 import { zh } from '../../i18n/zh.ts'
 
@@ -66,6 +67,80 @@ interface LocaleRuntimeLike {
 
 function dictFor(active: string): typeof zh {
   return active === 'zh' ? zh : en
+}
+
+function sessionIdBlock(
+  sessions: readonly SessionSummary[],
+  sessionsError: string | undefined,
+  sessionsRunning: boolean,
+  copyFlash: string | undefined,
+  sdict: typeof zh.sessionId,
+  onRefresh: () => void,
+  onCopy: (sessionId: string) => void,
+): ReactElement {
+  const list = sessionsError !== undefined
+    ? createElement('span', { style: noteStyle }, sessionsError)
+    : sessions.length === 0
+      ? createElement('span', { style: noteStyle }, sdict.empty)
+      : createElement('div', {
+        style: { display: 'flex', flexDirection: 'column', gap: '4px' },
+        'data-dsh-plugin': 'ice-tools',
+        'data-dsh-part': 'session-list',
+      },
+        sessions.map((entry) => {
+          const copied = copyFlash === `copied:${entry.sessionId}`
+          return createElement('div', {
+            key: entry.sessionId,
+            style: {
+              display: 'grid',
+              gridTemplateColumns: '1fr auto auto',
+              gap: '8px',
+              alignItems: 'center',
+              padding: '4px 8px',
+              borderRadius: '6px',
+              background: 'var(--dsw-alias-bg-row, rgba(127,127,127,0.05))',
+            },
+            'data-dsh-session-id': entry.sessionId,
+          },
+            createElement('code', {
+              style: {
+                fontFamily: 'var(--dsw-alias-font-mono, ui-monospace, monospace)',
+                fontSize: '12px',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              },
+            }, entry.sessionId),
+            createElement('span', { style: { fontSize: '12px' } }, entry.running === true ? sdict.running : sdict.idle),
+            createElement('button', {
+              type: 'button',
+              style: { ...buttonStyle, padding: '4px 8px' },
+              onClick: () => onCopy(entry.sessionId),
+            }, copied ? sdict.copied : sdict.copy),
+          )
+        }),
+        copyFlash === 'failed'
+          ? createElement('span', { style: { ...noteStyle, color: 'var(--dsw-alias-danger, #b42318)' } }, sdict.copyFailed)
+          : null,
+      )
+  return createElement('div', {
+    key: 'session-id',
+    style: { display: 'flex', flexDirection: 'column', gap: '8px', padding: '8px 0' },
+    'data-dsh-plugin': 'ice-tools',
+    'data-dsh-part': 'session-id',
+  },
+    createElement('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } },
+      createElement('span', { style: { fontWeight: 600 } }, sdict.title),
+      createElement('button', {
+        type: 'button',
+        style: buttonStyle,
+        onClick: onRefresh,
+        disabled: sessionsRunning,
+        'data-dsh-plugin': 'ice-tools',
+        'data-dsh-part': 'session-refresh',
+      }, sessionsRunning ? '…' : sdict.refresh),
+    ),
+    list,
+  )
 }
 
 function labelFor(active: string, id: ModuleName): string {
@@ -159,6 +234,10 @@ function IceToolsSection(props: IceToolsSectionProps): ReactElement {
   const [localeSnapshot, setLocaleSnapshot] = useState(() => locale.getSnapshot())
   const [doctorRun, setDoctorRun] = useState<DoctorRun | undefined>(undefined)
   const [doctorRunning, setDoctorRunning] = useState(false)
+  const [sessions, setSessions] = useState<readonly SessionSummary[]>([])
+  const [sessionsError, setSessionsError] = useState<string | undefined>(undefined)
+  const [sessionsRunning, setSessionsRunning] = useState(false)
+  const [copyFlash, setCopyFlash] = useState<string | undefined>(undefined)
   useEffect(() => {
     const offSettings = scope.subscribe(() => setSettings(scope.getSnapshot()))
     const offLocale = locale.subscribe(() => setLocaleSnapshot(locale.getSnapshot()))
@@ -187,6 +266,25 @@ function IceToolsSection(props: IceToolsSectionProps): ReactElement {
     void runDoctor(ctx).then((result) => {
       setDoctorRun(result)
       setDoctorRunning(false)
+    })
+  }
+
+  const onRefreshSessions = (): void => {
+    if (ctx === undefined || sessionsRunning) return
+    setSessionsRunning(true)
+    void listSessions(ctx).then((result) => {
+      setSessions(result.sessions)
+      setSessionsError(result.error)
+      setSessionsRunning(false)
+    })
+  }
+
+  const onCopySession = (sessionId: string): void => {
+    void copyToClipboard(sessionId).then((outcome) => {
+      setCopyFlash(outcome.ok ? `copied:${sessionId}` : 'failed')
+      if (typeof window !== 'undefined') {
+        window.setTimeout(() => setCopyFlash(undefined), 1500)
+      }
     })
   }
 
@@ -251,7 +349,7 @@ function IceToolsSection(props: IceToolsSectionProps): ReactElement {
       ),
   )
 
-  return createElement('section', { 'data-dsh-plugin': 'ice-tools', style: sectionStyle }, rows, doctorBlock)
+  return createElement('section', { 'data-dsh-plugin': 'ice-tools', style: sectionStyle }, rows, doctorBlock, sessionIdBlock(sessions, sessionsError, sessionsRunning, copyFlash, dict.sessionId, onRefreshSessions, onCopySession))
 }
 
 /**

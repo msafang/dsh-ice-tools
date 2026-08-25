@@ -27,6 +27,28 @@ export interface DoctorDictionary {
   }
 }
 
+export interface SessionIdDictionary {
+  readonly title: string
+  readonly refresh: string
+  readonly copy: string
+  readonly copied: string
+  readonly copyFailed: string
+  readonly empty: string
+  readonly running: string
+  readonly idle: string
+}
+
+export const sessionId: SessionIdDictionary = {
+  title: '会话 ID',
+  refresh: '刷新',
+  copy: '复制',
+  copied: '已复制',
+  copyFailed: '复制失败',
+  empty: '没有会话。',
+  running: '运行中',
+  idle: '空闲',
+}
+
 export const doctor: DoctorDictionary = {
   title: '诊断',
   runButton: '运行诊断',
@@ -65,7 +87,11 @@ export const doctor: DoctorDictionary = {
   },
 }
 
-export const zh: { readonly modules: Record<ModuleName, ModuleI18nEntry>; readonly doctor: DoctorDictionary } = {
+export const zh: {
+  readonly modules: Record<ModuleName, ModuleI18nEntry>
+  readonly doctor: DoctorDictionary
+  readonly sessionId: SessionIdDictionary
+} = {
   modules: {
     settingsHub: { label: '设置中心', description: '管理 ICE 工具模块和子设置入口。' },
     pluginManager: { label: '插件管理', description: '插件安装、启用和 profile 管理。' },
@@ -78,4 +104,5 @@ export const zh: { readonly modules: Record<ModuleName, ModuleI18nEntry>; readon
     taskBoard: { label: '任务看板', description: '查看和管理工作任务。' },
   },
   doctor,
+  sessionId,
 }

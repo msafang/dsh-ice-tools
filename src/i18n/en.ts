@@ -1,9 +1,13 @@
 import type { ModuleName } from '../core/dispatch/index.ts'
-import type { DoctorDictionary, ModuleI18nEntry } from './zh.ts'
+import type { DoctorDictionary, ModuleI18nEntry, SessionIdDictionary } from './zh.ts'
 
-export type { DoctorDictionary, DoctorEntry } from './zh.ts'
+export type { DoctorDictionary, DoctorEntry, SessionIdDictionary } from './zh.ts'
 
-export const en: { readonly modules: Record<ModuleName, ModuleI18nEntry>; readonly doctor: DoctorDictionary } = {
+export const en: {
+  readonly modules: Record<ModuleName, ModuleI18nEntry>
+  readonly doctor: DoctorDictionary
+  readonly sessionId: SessionIdDictionary
+} = {
   modules: {
     settingsHub: { label: 'Settings Hub', description: 'Manage ICE Tools modules and sub-settings links.' },
     pluginManager: { label: 'Plugin Manager', description: 'Install, enable, and manage profile plugins.' },
@@ -51,5 +55,15 @@ export const en: { readonly modules: Record<ModuleName, ModuleI18nEntry>; readon
         detail: 'The resolved section has every module key present.',
       },
     },
+  },
+  sessionId: {
+    title: 'Session ID',
+    refresh: 'Refresh',
+    copy: 'Copy',
+    copied: 'Copied',
+    copyFailed: 'Copy failed',
+    empty: 'No sessions yet.',
+    running: 'Running',
+    idle: 'Idle',
   },
 }
