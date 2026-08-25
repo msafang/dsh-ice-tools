@@ -45,7 +45,11 @@
     "type": "git",
     "url": "https://github.com/msafang/dsh-ice-tools.git"
   },
+  "peerDependencies": {
+    "@deepseek-ai/schemastery": "^3.18.1"
+  },
   "devDependencies": {
+    "@deepseek-ai/schemastery": "^3.18.1",
     "@types/node": "^22.20.0",
     "@types/react": "^19.2.18",
     "react": "^19.2.8",

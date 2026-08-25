@@ -47,6 +47,16 @@ export function renderSettingsCard(props: SettingsCardProps = {}): ReactElementL
   }
 }
 
+/** Minimal SettingsScope face consumed by the section component. */
+interface SettingsScopeLike {
+  getSnapshot(): { readonly value: IceConfig | undefined; readonly writable: boolean }
+  subscribe(listener: () => void): () => void
+  /** Mutate one field inside the namespace section (path: [field]). */
+  set(field: string, value: unknown): Promise<void>
+  /** Clear one field so it re-inherits the composition layer. */
+  unset(field: string): Promise<void>
+}
+
 /** Minimal LocaleRuntime face consumed by the section component. */
 interface LocaleRuntimeLike {
   getSnapshot(): { readonly active: string; readonly revision: number }
@@ -65,7 +75,7 @@ interface IceToolsSectionProps {
   /** Shell affordance: close the settings panel. */
   close?: () => void
   /** Settings-scope bound to the host-registered `ice-tools` namespace. */
-  scope: SettingsScope<IceConfig>
+  scope: SettingsScopeLike
   /** Live locale runtime for bilingual copy. */
   locale: LocaleRuntimeLike
 }
@@ -121,6 +131,12 @@ function IceToolsSection(props: IceToolsSectionProps): ReactElement {
   const writable = settings.writable
 
   const toggle = (name: ModuleName, next: boolean): void => {
+    // Path op on the `enabled` field: replace the dict with the next merged
+    // value. The controller turns this into a settings.mutate call against
+    // the host namespace; the provider validates the section through our
+    // schemastery schema (which permits a permissive dict of booleans under
+    // `enabled`). Locking `settingsHub: true` on every write keeps that row
+    // non-toggleable regardless of any cached state.
     void scope.set('enabled', { ...enabled, settingsHub: true, [name]: next })
   }
 
@@ -165,13 +181,15 @@ export function mount(ctx: ClientContext): Disposer {
   const locale = ctx.locale as unknown as LocaleRuntimeLike
   const injected = () => ({ scope, locale })
   // The 'settings.section' slot accepts a list of entries. We register one
-  // with a deterministic id and an order so the ICE Tools page appears
-  // alongside the built-in sections.
+  // with a deterministic id so the ICE Tools page appears alongside the
+  // built-in sections. `priority` lets us shadow any prior registrant at the
+  // same id and `order` controls where the entry sits in the rendered list.
   ctx.slots.inject('settings.section', () =>
     ctx.slots.register(
       {
         name: 'settings.section',
         id: 'ice-tools',
+        priority: 100,
         order: 10,
         label: () => labelFor(locale.getSnapshot().active, 'settingsHub'),
         inject: injected,
