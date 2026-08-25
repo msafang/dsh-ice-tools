@@ -238,12 +238,6 @@ function IceToolsSection(props: IceToolsSectionProps): ReactElement {
   const { scope, locale, ctx } = props
   const [settings, setSettings] = useState(() => scope.getSnapshot())
   const [localeSnapshot, setLocaleSnapshot] = useState(() => locale.getSnapshot())
-  const [doctorRun, setDoctorRun] = useState<DoctorRun | undefined>(undefined)
-  const [doctorRunning, setDoctorRunning] = useState(false)
-  const [sessions, setSessions] = useState<readonly SessionSummary[]>([])
-  const [sessionsError, setSessionsError] = useState<string | undefined>(undefined)
-  const [sessionsRunning, setSessionsRunning] = useState(false)
-  const [copyFlash, setCopyFlash] = useState<string | undefined>(undefined)
   useEffect(() => {
     const offSettings = scope.subscribe(() => setSettings(scope.getSnapshot()))
     const offLocale = locale.subscribe(() => setLocaleSnapshot(locale.getSnapshot()))
@@ -266,34 +260,6 @@ function IceToolsSection(props: IceToolsSectionProps): ReactElement {
     void scope.set('enabled', { ...enabled, settingsHub: true, [name]: next })
   }
 
-  const onRunDoctor = (): void => {
-    if (ctx === undefined || doctorRunning) return
-    setDoctorRunning(true)
-    void runDoctor(ctx).then((result) => {
-      setDoctorRun(result)
-      setDoctorRunning(false)
-    })
-  }
-
-  const onRefreshSessions = (): void => {
-    if (ctx === undefined || sessionsRunning) return
-    setSessionsRunning(true)
-    void listSessions(ctx).then((result) => {
-      setSessions(result.sessions)
-      setSessionsError(result.error)
-      setSessionsRunning(false)
-    })
-  }
-
-  const onCopySession = (sessionId: string): void => {
-    void copyToClipboard(sessionId).then((outcome) => {
-      setCopyFlash(outcome.ok ? `copied:${sessionId}` : 'failed')
-      if (typeof window !== 'undefined') {
-        window.setTimeout(() => setCopyFlash(undefined), 1500)
-      }
-    })
-  }
-
   const rows = MODULE_NAMES.map((id) =>
     createElement('label', {
       key: id,
@@ -313,23 +279,57 @@ function IceToolsSection(props: IceToolsSectionProps): ReactElement {
     ),
   )
 
-  const doctorBlock = createElement('div', {
+  // Each module toggle gates its corresponding utility block. settingsHub
+  // itself is non-toggleable; the rest flip on a per-block basis. The
+  // frozen-blocks (gitGraph, chatRecovery) keep their "requires host" note
+  // intact while only rendering when the user opts in.
+  const blockFor = (id: ModuleName, element: ReactElement): ReactElement | null =>
+    enabled[id] ? element : null
+
+  return createElement('section', { 'data-dsh-plugin': 'ice-tools', style: sectionStyle },
+    rows,
+    blockFor('doctor', createElement(DoctorBlock, { key: 'doctor', dict, ctx })),
+    blockFor('sessionId', createElement(SessionIdBlock, { key: 'session-id', dict, ctx })),
+    blockFor('skillExplorer', createElement(SkillExplorerBlock, { key: 'skill-explorer', dict })),
+    blockFor('desktopLauncher', createElement(DesktopLauncherBlock, { key: 'desktop-launcher', dict })),
+    blockFor('pluginManager', createElement(PluginManagerBlock, { key: 'plugin-manager', dict })),
+    blockFor('gitGraph', createElement(GitGraphBlock, { key: 'git-graph', dict })),
+    blockFor('taskBoard', createElement(TaskBoardBlock, { key: 'task-board', dict })),
+    blockFor('chatRecovery', createElement(ChatRecoveryBlock, { key: 'chat-recovery', dict })),
+  )
+}
+
+function DoctorBlock({ dict, ctx }: { readonly dict: typeof zh; readonly ctx: ClientContext | undefined }): ReactElement {
+  const sdict = dict.doctor
+  const [doctorRun, setDoctorRun] = useState<DoctorRun | undefined>(undefined)
+  const [doctorRunning, setDoctorRunning] = useState(false)
+  const onRun = (): void => {
+    if (ctx === undefined || doctorRunning) return
+    setDoctorRunning(true)
+    void runDoctor(ctx).then((result) => {
+      setDoctorRun(result)
+      setDoctorRunning(false)
+    })
+  }
+  return createElement('div', {
     key: 'doctor',
     style: { display: 'flex', flexDirection: 'column', gap: '8px', padding: '8px 0' },
+    'data-dsh-plugin': 'ice-tools',
+    'data-dsh-part': 'doctor',
   },
     createElement('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } },
-      createElement('span', { style: { fontWeight: 600 } }, dict.doctor.title),
+      createElement('span', { style: { fontWeight: 600 } }, sdict.title),
       createElement('button', {
         type: 'button',
         style: buttonStyle,
-        onClick: onRunDoctor,
+        onClick: onRun,
         disabled: doctorRunning || ctx === undefined,
         'data-dsh-plugin': 'ice-tools',
         'data-dsh-part': 'doctor-run',
-      }, doctorRunning ? dict.doctor.running : dict.doctor.runButton),
+      }, doctorRunning ? sdict.running : sdict.runButton),
     ),
     doctorRun === undefined
-      ? createElement('span', { style: noteStyle }, doctorRunning ? dict.doctor.running : '')
+      ? createElement('span', { style: noteStyle }, doctorRunning ? sdict.running : '')
       : createElement('div', {
         style: { display: 'flex', flexDirection: 'column', gap: '4px' },
         'data-dsh-plugin': 'ice-tools',
@@ -344,27 +344,101 @@ function IceToolsSection(props: IceToolsSectionProps): ReactElement {
           },
             createElement('span', { style: r.pass ? checkPassStyle : checkFailStyle }, r.pass ? '✓' : '✗'),
             createElement('div', { style: { display: 'flex', flexDirection: 'column' } },
-              createElement('span', { style: { fontSize: '13px' } }, dict.doctor.checks[r.key].label),
+              createElement('span', { style: { fontSize: '13px' } }, sdict.checks[r.key].label),
               createElement('span', { style: noteStyle }, r.note),
             ),
-            createElement('span', { style: { fontSize: '12px' } },
-              r.pass ? dict.doctor.pass : dict.doctor.fail,
-            ),
+            createElement('span', { style: { fontSize: '12px' } }, r.pass ? sdict.pass : sdict.fail),
           ),
         ),
       ),
   )
+}
 
-  return createElement('section', { 'data-dsh-plugin': 'ice-tools', style: sectionStyle },
-    rows,
-    doctorBlock,
-    sessionIdBlock(sessions, sessionsError, sessionsRunning, copyFlash, dict.sessionId, onRefreshSessions, onCopySession),
-    createElement(SkillExplorerBlock, { key: 'skill-explorer', dict }),
-    createElement(DesktopLauncherBlock, { key: 'desktop-launcher', dict }),
-    createElement(PluginManagerBlock, { key: 'plugin-manager', dict }),
-    createElement(GitGraphBlock, { key: 'git-graph', dict }),
-    createElement(TaskBoardBlock, { key: 'task-board', dict }),
-    createElement(ChatRecoveryBlock, { key: 'chat-recovery', dict }),
+function SessionIdBlock({ dict, ctx }: { readonly dict: typeof zh; readonly ctx: ClientContext | undefined }): ReactElement {
+  const sdict = dict.sessionId
+  const [sessions, setSessions] = useState<readonly SessionSummary[]>([])
+  const [sessionsError, setSessionsError] = useState<string | undefined>(undefined)
+  const [sessionsRunning, setSessionsRunning] = useState(false)
+  const [copyFlash, setCopyFlash] = useState<string | undefined>(undefined)
+  const onRefresh = (): void => {
+    if (ctx === undefined || sessionsRunning) return
+    setSessionsRunning(true)
+    void listSessions(ctx).then((result) => {
+      setSessions(result.sessions)
+      setSessionsError(result.error)
+      setSessionsRunning(false)
+    })
+  }
+  const onCopy = (sessionId: string): void => {
+    void copyToClipboard(sessionId).then((outcome) => {
+      setCopyFlash(outcome.ok ? `copied:${sessionId}` : 'failed')
+      if (typeof window !== 'undefined') {
+        window.setTimeout(() => setCopyFlash(undefined), 1500)
+      }
+    })
+  }
+  const list = sessionsError !== undefined
+    ? createElement('span', { style: noteStyle }, sessionsError)
+    : sessions.length === 0
+      ? createElement('span', { style: noteStyle }, sdict.empty)
+      : createElement('div', {
+        style: { display: 'flex', flexDirection: 'column', gap: '4px' },
+        'data-dsh-plugin': 'ice-tools',
+        'data-dsh-part': 'session-list',
+      },
+        sessions.map((entry) => {
+          const copied = copyFlash === `copied:${entry.sessionId}`
+          return createElement('div', {
+            key: entry.sessionId,
+            style: {
+              display: 'grid',
+              gridTemplateColumns: '1fr auto auto',
+              gap: '8px',
+              alignItems: 'center',
+              padding: '4px 8px',
+              borderRadius: '6px',
+              background: 'var(--dsw-alias-bg-row, rgba(127,127,127,0.05))',
+            },
+            'data-dsh-session-id': entry.sessionId,
+          },
+            createElement('code', {
+              style: {
+                fontFamily: 'var(--dsw-alias-font-mono, ui-monospace, monospace)',
+                fontSize: '12px',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              },
+            }, entry.sessionId),
+            createElement('span', { style: { fontSize: '12px' } }, entry.running === true ? sdict.running : sdict.idle),
+            createElement('button', {
+              type: 'button',
+              style: { ...buttonStyle, padding: '4px 8px' },
+              onClick: () => onCopy(entry.sessionId),
+            }, copied ? sdict.copied : sdict.copy),
+          )
+        }),
+        copyFlash === 'failed'
+          ? createElement('span', { style: { ...noteStyle, color: 'var(--dsw-alias-danger, #b42318)' } }, sdict.copyFailed)
+          : null,
+      )
+  return createElement('div', {
+    key: 'session-id',
+    style: { display: 'flex', flexDirection: 'column', gap: '8px', padding: '8px 0' },
+    'data-dsh-plugin': 'ice-tools',
+    'data-dsh-part': 'session-id',
+  },
+    createElement('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } },
+      createElement('span', { style: { fontWeight: 600 } }, sdict.title),
+      createElement('button', {
+        type: 'button',
+        style: buttonStyle,
+        onClick: onRefresh,
+        disabled: sessionsRunning,
+        'data-dsh-plugin': 'ice-tools',
+        'data-dsh-part': 'session-refresh',
+      }, sessionsRunning ? '…' : sdict.refresh),
+    ),
+    list,
   )
 }
 
