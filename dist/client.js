@@ -697,69 +697,6 @@ window.__ModuleLoader__.load({
 		function dictFor(active) {
 			return active === "zh" ? zh : en;
 		}
-		function sessionIdBlock(sessions, sessionsError, sessionsRunning, copyFlash, sdict, onRefresh, onCopy) {
-			const list = sessionsError !== void 0 ? (0, react.createElement)("span", { style: noteStyle }, sessionsError) : sessions.length === 0 ? (0, react.createElement)("span", { style: noteStyle }, sdict.empty) : (0, react.createElement)("div", {
-				style: {
-					display: "flex",
-					flexDirection: "column",
-					gap: "4px"
-				},
-				"data-dsh-plugin": "ice-tools",
-				"data-dsh-part": "session-list"
-			}, sessions.map((entry) => {
-				const copied = copyFlash === `copied:${entry.sessionId}`;
-				return (0, react.createElement)("div", {
-					key: entry.sessionId,
-					style: {
-						display: "grid",
-						gridTemplateColumns: "1fr auto auto",
-						gap: "8px",
-						alignItems: "center",
-						padding: "4px 8px",
-						borderRadius: "6px",
-						background: "var(--dsw-alias-bg-row, rgba(127,127,127,0.05))"
-					},
-					"data-dsh-session-id": entry.sessionId
-				}, (0, react.createElement)("code", { style: {
-					fontFamily: "var(--dsw-alias-font-mono, ui-monospace, monospace)",
-					fontSize: "12px",
-					overflow: "hidden",
-					textOverflow: "ellipsis"
-				} }, entry.sessionId), (0, react.createElement)("span", { style: { fontSize: "12px" } }, entry.running === true ? sdict.running : sdict.idle), (0, react.createElement)("button", {
-					type: "button",
-					style: {
-						...buttonStyle,
-						padding: "4px 8px"
-					},
-					onClick: () => onCopy(entry.sessionId)
-				}, copied ? sdict.copied : sdict.copy));
-			}), copyFlash === "failed" ? (0, react.createElement)("span", { style: {
-				...noteStyle,
-				color: "var(--dsw-alias-danger, #b42318)"
-			} }, sdict.copyFailed) : null);
-			return (0, react.createElement)("div", {
-				key: "session-id",
-				style: {
-					display: "flex",
-					flexDirection: "column",
-					gap: "8px",
-					padding: "8px 0"
-				},
-				"data-dsh-plugin": "ice-tools",
-				"data-dsh-part": "session-id"
-			}, (0, react.createElement)("div", { style: {
-				display: "flex",
-				gap: "8px",
-				alignItems: "center"
-			} }, (0, react.createElement)("span", { style: { fontWeight: 600 } }, sdict.title), (0, react.createElement)("button", {
-				type: "button",
-				style: buttonStyle,
-				onClick: onRefresh,
-				disabled: sessionsRunning,
-				"data-dsh-plugin": "ice-tools",
-				"data-dsh-part": "session-refresh"
-			}, sessionsRunning ? "…" : sdict.refresh)), list);
-		}
 		function labelFor(active, id) {
 			return dictFor(active).modules[id].label;
 		}
@@ -828,12 +765,6 @@ window.__ModuleLoader__.load({
 			const { scope, locale, ctx } = props;
 			const [settings, setSettings] = (0, react.useState)(() => scope.getSnapshot());
 			const [localeSnapshot, setLocaleSnapshot] = (0, react.useState)(() => locale.getSnapshot());
-			const [doctorRun, setDoctorRun] = (0, react.useState)(void 0);
-			const [doctorRunning, setDoctorRunning] = (0, react.useState)(false);
-			const [sessions, setSessions] = (0, react.useState)([]);
-			const [sessionsError, setSessionsError] = (0, react.useState)(void 0);
-			const [sessionsRunning, setSessionsRunning] = (0, react.useState)(false);
-			const [copyFlash, setCopyFlash] = (0, react.useState)(void 0);
 			(0, react.useEffect)(() => {
 				const offSettings = scope.subscribe(() => setSettings(scope.getSnapshot()));
 				const offLocale = locale.subscribe(() => setLocaleSnapshot(locale.getSnapshot()));
@@ -855,29 +786,6 @@ window.__ModuleLoader__.load({
 					[name]: next
 				});
 			};
-			const onRunDoctor = () => {
-				if (ctx === void 0 || doctorRunning) return;
-				setDoctorRunning(true);
-				runDoctor(ctx).then((result) => {
-					setDoctorRun(result);
-					setDoctorRunning(false);
-				});
-			};
-			const onRefreshSessions = () => {
-				if (ctx === void 0 || sessionsRunning) return;
-				setSessionsRunning(true);
-				listSessions(ctx).then((result) => {
-					setSessions(result.sessions);
-					setSessionsError(result.error);
-					setSessionsRunning(false);
-				});
-			};
-			const onCopySession = (sessionId) => {
-				copyToClipboard(sessionId).then((outcome) => {
-					setCopyFlash(outcome.ok ? `copied:${sessionId}` : "failed");
-					if (typeof window !== "undefined") window.setTimeout(() => setCopyFlash(void 0), 1500);
-				});
-			};
 			const rows = MODULE_NAMES.map((id) => (0, react.createElement)("label", {
 				key: id,
 				style: rowStyle,
@@ -890,26 +798,72 @@ window.__ModuleLoader__.load({
 				disabled: id === "settingsHub" || !writable,
 				onChange: (event) => toggle(id, event.target.checked)
 			}), (0, react.createElement)("span", { style: labelStyle }, dict.modules[id].label), (0, react.createElement)("span", { style: descStyle }, dict.modules[id].description)));
-			const doctorBlock = (0, react.createElement)("div", {
+			const blockFor = (id, element) => enabled[id] ? element : null;
+			return (0, react.createElement)("section", {
+				"data-dsh-plugin": "ice-tools",
+				style: sectionStyle
+			}, rows, blockFor("doctor", (0, react.createElement)(DoctorBlock, {
+				key: "doctor",
+				dict,
+				ctx
+			})), blockFor("sessionId", (0, react.createElement)(SessionIdBlock, {
+				key: "session-id",
+				dict,
+				ctx
+			})), blockFor("skillExplorer", (0, react.createElement)(SkillExplorerBlock, {
+				key: "skill-explorer",
+				dict
+			})), blockFor("desktopLauncher", (0, react.createElement)(DesktopLauncherBlock, {
+				key: "desktop-launcher",
+				dict
+			})), blockFor("pluginManager", (0, react.createElement)(PluginManagerBlock, {
+				key: "plugin-manager",
+				dict
+			})), blockFor("gitGraph", (0, react.createElement)(GitGraphBlock, {
+				key: "git-graph",
+				dict
+			})), blockFor("taskBoard", (0, react.createElement)(TaskBoardBlock, {
+				key: "task-board",
+				dict
+			})), blockFor("chatRecovery", (0, react.createElement)(ChatRecoveryBlock, {
+				key: "chat-recovery",
+				dict
+			})));
+		}
+		function DoctorBlock({ dict, ctx }) {
+			const sdict = dict.doctor;
+			const [doctorRun, setDoctorRun] = (0, react.useState)(void 0);
+			const [doctorRunning, setDoctorRunning] = (0, react.useState)(false);
+			const onRun = () => {
+				if (ctx === void 0 || doctorRunning) return;
+				setDoctorRunning(true);
+				runDoctor(ctx).then((result) => {
+					setDoctorRun(result);
+					setDoctorRunning(false);
+				});
+			};
+			return (0, react.createElement)("div", {
 				key: "doctor",
 				style: {
 					display: "flex",
 					flexDirection: "column",
 					gap: "8px",
 					padding: "8px 0"
-				}
+				},
+				"data-dsh-plugin": "ice-tools",
+				"data-dsh-part": "doctor"
 			}, (0, react.createElement)("div", { style: {
 				display: "flex",
 				gap: "8px",
 				alignItems: "center"
-			} }, (0, react.createElement)("span", { style: { fontWeight: 600 } }, dict.doctor.title), (0, react.createElement)("button", {
+			} }, (0, react.createElement)("span", { style: { fontWeight: 600 } }, sdict.title), (0, react.createElement)("button", {
 				type: "button",
 				style: buttonStyle,
-				onClick: onRunDoctor,
+				onClick: onRun,
 				disabled: doctorRunning || ctx === void 0,
 				"data-dsh-plugin": "ice-tools",
 				"data-dsh-part": "doctor-run"
-			}, doctorRunning ? dict.doctor.running : dict.doctor.runButton)), doctorRun === void 0 ? (0, react.createElement)("span", { style: noteStyle }, doctorRunning ? dict.doctor.running : "") : (0, react.createElement)("div", {
+			}, doctorRunning ? sdict.running : sdict.runButton)), doctorRun === void 0 ? (0, react.createElement)("span", { style: noteStyle }, doctorRunning ? sdict.running : "") : (0, react.createElement)("div", {
 				style: {
 					display: "flex",
 					flexDirection: "column",
@@ -925,29 +879,90 @@ window.__ModuleLoader__.load({
 			}, (0, react.createElement)("span", { style: r.pass ? checkPassStyle : checkFailStyle }, r.pass ? "✓" : "✗"), (0, react.createElement)("div", { style: {
 				display: "flex",
 				flexDirection: "column"
-			} }, (0, react.createElement)("span", { style: { fontSize: "13px" } }, dict.doctor.checks[r.key].label), (0, react.createElement)("span", { style: noteStyle }, r.note)), (0, react.createElement)("span", { style: { fontSize: "12px" } }, r.pass ? dict.doctor.pass : dict.doctor.fail)))));
-			return (0, react.createElement)("section", {
+			} }, (0, react.createElement)("span", { style: { fontSize: "13px" } }, sdict.checks[r.key].label), (0, react.createElement)("span", { style: noteStyle }, r.note)), (0, react.createElement)("span", { style: { fontSize: "12px" } }, r.pass ? sdict.pass : sdict.fail)))));
+		}
+		function SessionIdBlock({ dict, ctx }) {
+			const sdict = dict.sessionId;
+			const [sessions, setSessions] = (0, react.useState)([]);
+			const [sessionsError, setSessionsError] = (0, react.useState)(void 0);
+			const [sessionsRunning, setSessionsRunning] = (0, react.useState)(false);
+			const [copyFlash, setCopyFlash] = (0, react.useState)(void 0);
+			const onRefresh = () => {
+				if (ctx === void 0 || sessionsRunning) return;
+				setSessionsRunning(true);
+				listSessions(ctx).then((result) => {
+					setSessions(result.sessions);
+					setSessionsError(result.error);
+					setSessionsRunning(false);
+				});
+			};
+			const onCopy = (sessionId) => {
+				copyToClipboard(sessionId).then((outcome) => {
+					setCopyFlash(outcome.ok ? `copied:${sessionId}` : "failed");
+					if (typeof window !== "undefined") window.setTimeout(() => setCopyFlash(void 0), 1500);
+				});
+			};
+			const list = sessionsError !== void 0 ? (0, react.createElement)("span", { style: noteStyle }, sessionsError) : sessions.length === 0 ? (0, react.createElement)("span", { style: noteStyle }, sdict.empty) : (0, react.createElement)("div", {
+				style: {
+					display: "flex",
+					flexDirection: "column",
+					gap: "4px"
+				},
 				"data-dsh-plugin": "ice-tools",
-				style: sectionStyle
-			}, rows, doctorBlock, sessionIdBlock(sessions, sessionsError, sessionsRunning, copyFlash, dict.sessionId, onRefreshSessions, onCopySession), (0, react.createElement)(SkillExplorerBlock, {
-				key: "skill-explorer",
-				dict
-			}), (0, react.createElement)(DesktopLauncherBlock, {
-				key: "desktop-launcher",
-				dict
-			}), (0, react.createElement)(PluginManagerBlock, {
-				key: "plugin-manager",
-				dict
-			}), (0, react.createElement)(GitGraphBlock, {
-				key: "git-graph",
-				dict
-			}), (0, react.createElement)(TaskBoardBlock, {
-				key: "task-board",
-				dict
-			}), (0, react.createElement)(ChatRecoveryBlock, {
-				key: "chat-recovery",
-				dict
-			}));
+				"data-dsh-part": "session-list"
+			}, sessions.map((entry) => {
+				const copied = copyFlash === `copied:${entry.sessionId}`;
+				return (0, react.createElement)("div", {
+					key: entry.sessionId,
+					style: {
+						display: "grid",
+						gridTemplateColumns: "1fr auto auto",
+						gap: "8px",
+						alignItems: "center",
+						padding: "4px 8px",
+						borderRadius: "6px",
+						background: "var(--dsw-alias-bg-row, rgba(127,127,127,0.05))"
+					},
+					"data-dsh-session-id": entry.sessionId
+				}, (0, react.createElement)("code", { style: {
+					fontFamily: "var(--dsw-alias-font-mono, ui-monospace, monospace)",
+					fontSize: "12px",
+					overflow: "hidden",
+					textOverflow: "ellipsis"
+				} }, entry.sessionId), (0, react.createElement)("span", { style: { fontSize: "12px" } }, entry.running === true ? sdict.running : sdict.idle), (0, react.createElement)("button", {
+					type: "button",
+					style: {
+						...buttonStyle,
+						padding: "4px 8px"
+					},
+					onClick: () => onCopy(entry.sessionId)
+				}, copied ? sdict.copied : sdict.copy));
+			}), copyFlash === "failed" ? (0, react.createElement)("span", { style: {
+				...noteStyle,
+				color: "var(--dsw-alias-danger, #b42318)"
+			} }, sdict.copyFailed) : null);
+			return (0, react.createElement)("div", {
+				key: "session-id",
+				style: {
+					display: "flex",
+					flexDirection: "column",
+					gap: "8px",
+					padding: "8px 0"
+				},
+				"data-dsh-plugin": "ice-tools",
+				"data-dsh-part": "session-id"
+			}, (0, react.createElement)("div", { style: {
+				display: "flex",
+				gap: "8px",
+				alignItems: "center"
+			} }, (0, react.createElement)("span", { style: { fontWeight: 600 } }, sdict.title), (0, react.createElement)("button", {
+				type: "button",
+				style: buttonStyle,
+				onClick: onRefresh,
+				disabled: sessionsRunning,
+				"data-dsh-plugin": "ice-tools",
+				"data-dsh-part": "session-refresh"
+			}, sessionsRunning ? "…" : sdict.refresh)), list);
 		}
 		function SkillExplorerBlock({ dict }) {
 			const sdict = dict.skillExplorer;
