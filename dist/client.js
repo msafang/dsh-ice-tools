@@ -111,10 +111,24 @@ window.__ModuleLoader__.load({
 				refresh: "Refresh",
 				copy: "Copy",
 				copied: "Copied",
+				copyAll: "Copy all",
+				copiedAll: "All session ids copied",
 				copyFailed: "Copy failed",
 				empty: "No sessions yet.",
+				emptyFilter: "No sessions match the current filter.",
 				running: "Running",
-				idle: "Idle"
+				idle: "Idle",
+				filterAll: "All",
+				filterRunning: "Running",
+				filterIdle: "Idle",
+				newCwdPlaceholder: "Working directory (optional)",
+				newSession: "New session",
+				created: "Session created.",
+				cancel: "Cancel",
+				cancelled: "Cancel request sent.",
+				rename: "Rename",
+				renamed: "Renamed.",
+				untitled: "(untitled)"
 			},
 			skillExplorer: {
 				title: "Skill Explorer",
@@ -277,10 +291,24 @@ window.__ModuleLoader__.load({
 				refresh: "刷新",
 				copy: "复制",
 				copied: "已复制",
+				copyAll: "复制全部",
+				copiedAll: "已复制全部 id",
 				copyFailed: "复制失败",
 				empty: "没有会话。",
+				emptyFilter: "当前过滤条件下没有会话。",
 				running: "运行中",
-				idle: "空闲"
+				idle: "空闲",
+				filterAll: "全部",
+				filterRunning: "运行中",
+				filterIdle: "空闲",
+				newCwdPlaceholder: "工作目录 (可留空)",
+				newSession: "新建会话",
+				created: "已新建会话。",
+				cancel: "取消",
+				cancelled: "已发送取消请求。",
+				rename: "重命名",
+				renamed: "已重命名。",
+				untitled: "（无标题）"
 			},
 			skillExplorer: {
 				title: "技能浏览器",
@@ -747,15 +775,27 @@ window.__ModuleLoader__.load({
 			return {
 				sessionId: candidate.sessionId,
 				...isString(candidate.title) ? { title: candidate.title } : {},
+				...isString(candidate.cwd) ? { cwd: candidate.cwd } : {},
 				...typeof candidate.updatedAt === "number" ? { updatedAt: candidate.updatedAt } : {},
-				...typeof candidate.running === "boolean" ? { running: candidate.running } : {}
+				...typeof candidate.running === "boolean" ? { running: candidate.running } : {},
+				...typeof candidate.blank === "boolean" ? { blank: candidate.blank } : {}
+			};
+		}
+		function unwrap(response) {
+			if (response.result.ok) return {
+				ok: true,
+				value: response.result.value
+			};
+			return {
+				ok: false,
+				error: response.result.error.message
 			};
 		}
 		/**
 		* Pull the session list through the loopback connection. The list shape is
 		* `{ items: SessionSummary[] }` per the upstream `sessions/list` contract;
 		* unknown entries are dropped silently so a future Host-side addition does
-		* not crash the doctor.
+		* not crash the page.
 		*/
 		async function listSessions(ctx) {
 			const conn = ctx.get("connection");
@@ -823,6 +863,60 @@ window.__ModuleLoader__.load({
 					message: `execCommand threw: ${error instanceof Error ? error.message : String(error)}`
 				};
 			}
+		}
+		function sessionResult(response, fallback) {
+			const unwrapped = unwrap(response);
+			if (unwrapped.ok) return {
+				ok: true,
+				message: fallback
+			};
+			return {
+				ok: false,
+				message: unwrapped.error
+			};
+		}
+		async function createSession(ctx, cwd) {
+			const conn = ctx.get("connection");
+			if (conn === void 0) return {
+				ok: false,
+				message: "connection service missing"
+			};
+			const trimmed = cwd.trim();
+			return sessionResult(await conn.api.sessions.create(trimmed.length === 0 ? {} : { cwd: trimmed }), "session created");
+		}
+		async function renameSession(ctx, sessionId, title) {
+			const conn = ctx.get("connection");
+			if (conn === void 0) return {
+				ok: false,
+				message: "connection service missing"
+			};
+			const trimmed = title.trim();
+			if (trimmed.length === 0) return {
+				ok: false,
+				message: "title cannot be empty"
+			};
+			return sessionResult(await conn.api.sessions.rename({
+				sessionId,
+				title: trimmed
+			}), "renamed");
+		}
+		async function cancelSession(ctx, sessionId) {
+			const conn = ctx.get("connection");
+			if (conn === void 0) return {
+				ok: false,
+				message: "connection service missing"
+			};
+			return sessionResult(await conn.api.sessions.cancel({ sessionId }), "cancel sent");
+		}
+		/** Filter the session list by a coarse status selector. */
+		function filterSessions(sessions, status) {
+			if (status === "all") return sessions;
+			if (status === "running") return sessions.filter((entry) => entry.running === true);
+			return sessions.filter((entry) => entry.running !== true);
+		}
+		/** Flatten the visible sessions into a newline-joined id list. */
+		function joinSessionIds(sessions) {
+			return sessions.map((entry) => entry.sessionId).join("\n");
 		}
 		//#endregion
 		//#region src/modules/desktop-launcher/client.ts
@@ -1484,6 +1578,11 @@ window.__ModuleLoader__.load({
 			const [sessionsError, setSessionsError] = (0, react.useState)(void 0);
 			const [sessionsRunning, setSessionsRunning] = (0, react.useState)(false);
 			const [copyFlash, setCopyFlash] = (0, react.useState)(void 0);
+			const [status, setStatus] = (0, react.useState)("all");
+			const [newCwd, setNewCwd] = (0, react.useState)("");
+			const [editingId, setEditingId] = (0, react.useState)(void 0);
+			const [editingValue, setEditingValue] = (0, react.useState)("");
+			const [feedback, setFeedback] = (0, react.useState)(void 0);
 			const onRefresh = () => {
 				if (ctx === void 0 || sessionsRunning) return;
 				setSessionsRunning(true);
@@ -1499,7 +1598,49 @@ window.__ModuleLoader__.load({
 					if (typeof window !== "undefined") window.setTimeout(() => setCopyFlash(void 0), 1500);
 				});
 			};
-			const list = sessionsError !== void 0 ? (0, react.createElement)("span", { style: noteStyle }, sessionsError) : sessions.length === 0 ? (0, react.createElement)("span", { style: noteStyle }, sdict.empty) : (0, react.createElement)("div", {
+			const onCopyAll = () => {
+				copyToClipboard(joinSessionIds(sessions)).then((outcome) => {
+					setFeedback(outcome.ok ? sdict.copiedAll : sdict.copyFailed);
+					if (typeof window !== "undefined") window.setTimeout(() => setFeedback(void 0), 1500);
+				});
+			};
+			const onCreate = () => {
+				if (ctx === void 0) return;
+				createSession(ctx, newCwd).then((result) => {
+					setFeedback(result.ok ? sdict.created : result.message);
+					if (typeof window !== "undefined") window.setTimeout(() => setFeedback(void 0), 2e3);
+					if (result.ok) {
+						setNewCwd("");
+						onRefresh();
+					}
+				});
+			};
+			const beginEdit = (entry) => {
+				setEditingId(entry.sessionId);
+				setEditingValue(entry.title ?? "");
+			};
+			const commitEdit = () => {
+				if (ctx === void 0 || editingId === void 0) return;
+				const sessionId = editingId;
+				const title = editingValue;
+				setEditingId(void 0);
+				setEditingValue("");
+				renameSession(ctx, sessionId, title).then((result) => {
+					setFeedback(result.ok ? sdict.renamed : result.message);
+					if (typeof window !== "undefined") window.setTimeout(() => setFeedback(void 0), 2e3);
+					if (result.ok) onRefresh();
+				});
+			};
+			const onCancel = (sessionId) => {
+				if (ctx === void 0) return;
+				cancelSession(ctx, sessionId).then((result) => {
+					setFeedback(result.ok ? sdict.cancelled : result.message);
+					if (typeof window !== "undefined") window.setTimeout(() => setFeedback(void 0), 2e3);
+					if (result.ok) onRefresh();
+				});
+			};
+			const visible = filterSessions(sessions, status);
+			const list = sessionsError !== void 0 ? (0, react.createElement)("span", { style: noteStyle }, sessionsError) : sessions.length === 0 ? (0, react.createElement)("span", { style: noteStyle }, sdict.empty) : visible.length === 0 ? (0, react.createElement)("span", { style: noteStyle }, sdict.emptyFilter) : (0, react.createElement)("div", {
 				style: {
 					display: "flex",
 					flexDirection: "column",
@@ -1507,33 +1648,86 @@ window.__ModuleLoader__.load({
 				},
 				"data-dsh-plugin": "ice-tools",
 				"data-dsh-part": "session-list"
-			}, sessions.map((entry) => {
+			}, visible.map((entry) => {
 				const copied = copyFlash === `copied:${entry.sessionId}`;
+				const editing = editingId === entry.sessionId;
 				return (0, react.createElement)("div", {
 					key: entry.sessionId,
 					style: {
-						display: "grid",
-						gridTemplateColumns: "1fr auto auto",
-						gap: "8px",
-						alignItems: "center",
-						padding: "4px 8px",
+						display: "flex",
+						flexDirection: "column",
+						gap: "4px",
+						padding: "6px 10px",
 						borderRadius: "6px",
 						background: "var(--dsw-alias-bg-row, rgba(127,127,127,0.05))"
 					},
-					"data-dsh-session-id": entry.sessionId
-				}, (0, react.createElement)("code", { style: {
-					fontFamily: "var(--dsw-alias-font-mono, ui-monospace, monospace)",
-					fontSize: "12px",
-					overflow: "hidden",
-					textOverflow: "ellipsis"
-				} }, entry.sessionId), (0, react.createElement)("span", { style: { fontSize: "12px" } }, entry.running === true ? sdict.running : sdict.idle), (0, react.createElement)("button", {
+					"data-dsh-session-id": entry.sessionId,
+					"data-dsh-running": entry.running === true ? "true" : "false"
+				}, (0, react.createElement)("div", { style: {
+					display: "grid",
+					gridTemplateColumns: "1fr auto auto auto",
+					gap: "8px",
+					alignItems: "center"
+				} }, editing ? (0, react.createElement)("input", {
+					type: "text",
+					value: editingValue,
+					style: {
+						...inputStyle,
+						fontFamily: "inherit"
+					},
+					onChange: (e) => setEditingValue(e.target.value),
+					onBlur: () => commitEdit(),
+					onKeyDown: (e) => {
+						if (e.key === "Enter") commitEdit();
+						if (e.key === "Escape") {
+							setEditingId(void 0);
+							setEditingValue("");
+						}
+					},
+					autoFocus: true
+				}) : (0, react.createElement)("code", {
+					style: {
+						fontFamily: "var(--dsw-alias-font-mono, ui-monospace, monospace)",
+						fontSize: "12px",
+						overflow: "hidden",
+						textOverflow: "ellipsis",
+						cursor: "pointer"
+					},
+					onClick: () => beginEdit(entry),
+					title: entry.sessionId
+				}, entry.sessionId), (0, react.createElement)("span", { style: {
+					fontSize: "11px",
+					padding: "1px 6px",
+					borderRadius: "4px",
+					background: entry.running === true ? "var(--dsw-alias-success-bg, #d1f7e0)" : "var(--dsw-alias-bg-row, #eee)",
+					color: entry.running === true ? "var(--dsw-alias-success, #0a7d2c)" : "var(--dsw-alias-label-secondary, #666)"
+				} }, entry.running === true ? sdict.running : sdict.idle), (0, react.createElement)("button", {
 					type: "button",
 					style: {
 						...buttonStyle,
-						padding: "4px 8px"
+						padding: "2px 8px",
+						fontSize: "11px"
 					},
 					onClick: () => onCopy(entry.sessionId)
-				}, copied ? sdict.copied : sdict.copy));
+				}, copied ? sdict.copied : sdict.copy), (0, react.createElement)("button", {
+					type: "button",
+					style: {
+						...buttonStyle,
+						padding: "2px 8px",
+						fontSize: "11px"
+					},
+					disabled: entry.running !== true,
+					onClick: () => onCancel(entry.sessionId)
+				}, sdict.cancel)), (0, react.createElement)("div", { style: {
+					display: "flex",
+					gap: "8px",
+					alignItems: "center",
+					fontSize: "11px",
+					color: "var(--dsw-alias-label-secondary, #666)"
+				} }, entry.title !== void 0 && entry.title.length > 0 ? (0, react.createElement)("span", {
+					style: { cursor: "pointer" },
+					onClick: () => beginEdit(entry)
+				}, entry.title) : (0, react.createElement)("span", { style: { fontStyle: "italic" } }, sdict.untitled), entry.cwd !== void 0 ? (0, react.createElement)("span", { style: { fontFamily: "var(--dsw-alias-font-mono, ui-monospace, monospace)" } }, entry.cwd) : null));
 			}), copyFlash === "failed" ? (0, react.createElement)("span", { style: {
 				...noteStyle,
 				color: "var(--dsw-alias-danger, #b42318)"
@@ -1551,7 +1745,8 @@ window.__ModuleLoader__.load({
 			}, (0, react.createElement)("div", { style: {
 				display: "flex",
 				gap: "8px",
-				alignItems: "center"
+				alignItems: "center",
+				flexWrap: "wrap"
 			} }, (0, react.createElement)("span", { style: { fontWeight: 600 } }, sdict.title), (0, react.createElement)("button", {
 				type: "button",
 				style: buttonStyle,
@@ -1559,7 +1754,62 @@ window.__ModuleLoader__.load({
 				disabled: sessionsRunning,
 				"data-dsh-plugin": "ice-tools",
 				"data-dsh-part": "session-refresh"
-			}, sessionsRunning ? "…" : sdict.refresh)), list);
+			}, sessionsRunning ? "…" : sdict.refresh), (0, react.createElement)("button", {
+				type: "button",
+				style: {
+					...buttonStyle,
+					padding: "4px 8px"
+				},
+				onClick: onCopyAll,
+				disabled: sessions.length === 0,
+				"data-dsh-plugin": "ice-tools",
+				"data-dsh-part": "session-copy-all"
+			}, sdict.copyAll), (0, react.createElement)("div", { style: {
+				display: "flex",
+				gap: "4px"
+			} }, [
+				"all",
+				"running",
+				"idle"
+			].map((option) => (0, react.createElement)("button", {
+				key: option,
+				type: "button",
+				style: {
+					...buttonStyle,
+					padding: "2px 8px",
+					fontSize: "12px",
+					background: status === option ? "var(--dsw-alias-bg-elevated, #ddd)" : void 0
+				},
+				onClick: () => setStatus(option),
+				"data-dsh-filter": option
+			}, sdict[`filter${option[0].toUpperCase()}${option.slice(1)}`])))), (0, react.createElement)("div", { style: {
+				display: "flex",
+				gap: "8px"
+			} }, (0, react.createElement)("input", {
+				type: "text",
+				value: newCwd,
+				placeholder: sdict.newCwdPlaceholder,
+				style: {
+					...inputStyle,
+					flex: 1
+				},
+				onChange: (e) => setNewCwd(e.target.value),
+				onKeyDown: (e) => {
+					if (e.key === "Enter") onCreate();
+				},
+				"data-dsh-plugin": "ice-tools",
+				"data-dsh-part": "session-cwd"
+			}), (0, react.createElement)("button", {
+				type: "button",
+				style: buttonStyle,
+				onClick: onCreate,
+				disabled: ctx === void 0,
+				"data-dsh-plugin": "ice-tools",
+				"data-dsh-part": "session-create"
+			}, sdict.newSession)), feedback ? (0, react.createElement)("span", { style: {
+				...noteStyle,
+				color: "var(--dsw-alias-success, #0a7d2c)"
+			} }, feedback) : null, list);
 		}
 		function SkillExplorerBlock({ dict }) {
 			const sdict = dict.skillExplorer;
