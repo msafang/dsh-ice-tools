@@ -1,26 +1,28 @@
 import type { ModuleName } from '../core/dispatch/index.ts'
 import type {
+  ChatRecoveryDictionary,
+  DesktopLauncherDictionary,
   DoctorDictionary,
+  GitGraphDictionary,
   ModuleI18nEntry,
+  PageHintsDictionary,
+  PluginManagerDictionary,
   SessionIdDictionary,
   SkillExplorerDictionary,
-  DesktopLauncherDictionary,
-  PluginManagerDictionary,
-  GitGraphDictionary,
   TaskBoardDictionary,
-  ChatRecoveryDictionary,
 } from './zh.ts'
 
 export type {
+  ChatRecoveryDictionary,
+  DesktopLauncherDictionary,
   DoctorDictionary,
   DoctorEntry,
+  GitGraphDictionary,
+  PageHintsDictionary,
+  PluginManagerDictionary,
   SessionIdDictionary,
   SkillExplorerDictionary,
-  DesktopLauncherDictionary,
-  PluginManagerDictionary,
-  GitGraphDictionary,
   TaskBoardDictionary,
-  ChatRecoveryDictionary,
 } from './zh.ts'
 
 export const en: {
@@ -33,6 +35,7 @@ export const en: {
   readonly gitGraph: GitGraphDictionary
   readonly taskBoard: TaskBoardDictionary
   readonly chatRecovery: ChatRecoveryDictionary
+  readonly pageHints: PageHintsDictionary
 } = {
   modules: {
     settingsHub: { label: 'Settings Hub', description: 'Manage ICE Tools modules and sub-settings links.' },
@@ -164,5 +167,11 @@ export const en: {
   chatRecovery: {
     title: 'Chat Recovery',
     note: 'A Host-side failure event stream is required to list recoverable sessions.',
+  },
+  pageHints: {
+    toggleGuidance: 'Toggle a row above to enable its block below; untoggle to hide it.',
+    resetButton: 'Reset to defaults',
+    resetConfirm: 'Reset will clear your current toggle overrides. Continue?',
+    resetDone: 'Reset complete.',
   },
 }

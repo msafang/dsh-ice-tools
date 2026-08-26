@@ -227,6 +227,20 @@ export const doctor: DoctorDictionary = {
   },
 }
 
+export interface PageHintsDictionary {
+  readonly toggleGuidance: string
+  readonly resetButton: string
+  readonly resetConfirm: string
+  readonly resetDone: string
+}
+
+export const pageHints: PageHintsDictionary = {
+  toggleGuidance: '勾选上面的选项即可启用对应工具；取消勾选则隐藏。',
+  resetButton: '重置为默认',
+  resetConfirm: '重置后将清除当前所有自定义 toggle 设置，确定吗？',
+  resetDone: '已重置。',
+}
+
 export const zh: {
   readonly modules: Record<ModuleName, ModuleI18nEntry>
   readonly doctor: DoctorDictionary
@@ -237,6 +251,7 @@ export const zh: {
   readonly gitGraph: GitGraphDictionary
   readonly taskBoard: TaskBoardDictionary
   readonly chatRecovery: ChatRecoveryDictionary
+  readonly pageHints: PageHintsDictionary
 } = {
   modules: {
     settingsHub: { label: '设置中心', description: '管理 ICE 工具模块和子设置入口。' },
@@ -257,4 +272,5 @@ export const zh: {
   gitGraph,
   taskBoard,
   chatRecovery,
+  pageHints,
 }

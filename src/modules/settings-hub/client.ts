@@ -238,6 +238,7 @@ function IceToolsSection(props: IceToolsSectionProps): ReactElement {
   const { scope, locale, ctx } = props
   const [settings, setSettings] = useState(() => scope.getSnapshot())
   const [localeSnapshot, setLocaleSnapshot] = useState(() => locale.getSnapshot())
+  const [resetFlash, setResetFlash] = useState(false)
   useEffect(() => {
     const offSettings = scope.subscribe(() => setSettings(scope.getSnapshot()))
     const offLocale = locale.subscribe(() => setLocaleSnapshot(locale.getSnapshot()))
@@ -260,6 +261,18 @@ function IceToolsSection(props: IceToolsSectionProps): ReactElement {
     void scope.set('enabled', { ...enabled, settingsHub: true, [name]: next })
   }
 
+  const onReset = (): void => {
+    if (typeof window !== 'undefined') {
+      const accepted = window.confirm(dict.pageHints.resetConfirm)
+      if (!accepted) return
+    }
+    void scope.unset('enabled')
+    setResetFlash(true)
+    if (typeof window !== 'undefined') {
+      window.setTimeout(() => setResetFlash(false), 1500)
+    }
+  }
+
   const rows = MODULE_NAMES.map((id) =>
     createElement('label', {
       key: id,
@@ -279,6 +292,26 @@ function IceToolsSection(props: IceToolsSectionProps): ReactElement {
     ),
   )
 
+  const headerRow = createElement('div', {
+    key: 'header',
+    style: { display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', padding: '4px 0' },
+    'data-dsh-plugin': 'ice-tools',
+    'data-dsh-part': 'settings-header',
+  },
+    createElement('span', { style: { ...noteStyle, flex: 1 } }, dict.pageHints.toggleGuidance),
+    resetFlash
+      ? createElement('span', { style: { ...noteStyle, color: 'var(--dsw-alias-success, #0a7d2c)' } }, dict.pageHints.resetDone)
+      : null,
+    createElement('button', {
+      type: 'button',
+      style: { ...buttonStyle, padding: '4px 10px', fontSize: '12px' },
+      onClick: onReset,
+      disabled: !writable,
+      'data-dsh-plugin': 'ice-tools',
+      'data-dsh-part': 'settings-reset',
+    }, dict.pageHints.resetButton),
+  )
+
   // Each module toggle gates its corresponding utility block. settingsHub
   // itself is non-toggleable; the rest flip on a per-block basis. The
   // frozen-blocks (gitGraph, chatRecovery) keep their "requires host" note
@@ -287,6 +320,7 @@ function IceToolsSection(props: IceToolsSectionProps): ReactElement {
     enabled[id] ? element : null
 
   return createElement('section', { 'data-dsh-plugin': 'ice-tools', style: sectionStyle },
+    headerRow,
     rows,
     blockFor('doctor', createElement(DoctorBlock, { key: 'doctor', dict, ctx })),
     blockFor('sessionId', createElement(SessionIdBlock, { key: 'session-id', dict, ctx })),

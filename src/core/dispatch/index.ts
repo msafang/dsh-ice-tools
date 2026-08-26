@@ -26,13 +26,21 @@ export interface IceConfig {
   readonly enabled: EnabledModules
 }
 
+/**
+ * Defaults for the toggle surface. Two utilities are flipped on by default
+ * because they are useful on every ICE Tools visit: the doctor checks the
+ * runtime and the session list gives the user an immediate handle on the
+ * current session id. The other six are off until the user opts in — they
+ * reach for niche utilities (skill catalogue, patch browser, git graph,
+ * task list, recovery log) and the empty state already hints at them.
+ */
 export const DEFAULT_ENABLED: EnabledModules = {
   settingsHub: true,
   pluginManager: false,
   chatRecovery: false,
   desktopLauncher: false,
-  doctor: false,
-  sessionId: false,
+  doctor: true,
+  sessionId: true,
   skillExplorer: false,
   gitGraph: false,
   taskBoard: false,
