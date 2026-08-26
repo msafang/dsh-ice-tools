@@ -4,7 +4,7 @@ import type { Disposer, ReactElementLike, SettingsScope } from '../../core/dsh-a
 import { DEFAULT_ENABLED, MODULE_NAMES, normalizeEnabled, type EnabledModules, type IceConfig, type ModuleName } from '../../core/dispatch/index.ts'
 import { runDoctor, type DoctorRun } from '../doctor/client.ts'
 import { KNOWN_SKILLS, type SkillEntry } from '../skill-explorer/client.ts'
-import { copyToClipboard, listSessions, type SessionSummary } from '../session-id/client.ts'
+import { copyToClipboard, cancelSession, createSession, filterSessions, joinSessionIds, listSessions, renameSession, type SessionSummary } from '../session-id/client.ts'
 import { isLaunchableUrl, loadHistory, openOrCopyUrl, QUICK_PRESETS, recordHistory, removeHistory, type UrlScheme } from '../desktop-launcher/client.ts'
 import { parseCordisPatch } from '../plugin-manager/client.ts'
 import { readGitGraphState } from '../git-graph/client.ts'
@@ -394,6 +394,11 @@ function SessionIdBlock({ dict, ctx }: { readonly dict: typeof zh; readonly ctx:
   const [sessionsError, setSessionsError] = useState<string | undefined>(undefined)
   const [sessionsRunning, setSessionsRunning] = useState(false)
   const [copyFlash, setCopyFlash] = useState<string | undefined>(undefined)
+  const [status, setStatus] = useState<'all' | 'running' | 'idle'>('all')
+  const [newCwd, setNewCwd] = useState('')
+  const [editingId, setEditingId] = useState<string | undefined>(undefined)
+  const [editingValue, setEditingValue] = useState('')
+  const [feedback, setFeedback] = useState<string | undefined>(undefined)
   const onRefresh = (): void => {
     if (ctx === undefined || sessionsRunning) return
     setSessionsRunning(true)
@@ -411,57 +416,155 @@ function SessionIdBlock({ dict, ctx }: { readonly dict: typeof zh; readonly ctx:
       }
     })
   }
+  const onCopyAll = (): void => {
+    void copyToClipboard(joinSessionIds(sessions)).then((outcome) => {
+      setFeedback(outcome.ok ? sdict.copiedAll : sdict.copyFailed)
+      if (typeof window !== 'undefined') {
+        window.setTimeout(() => setFeedback(undefined), 1500)
+      }
+    })
+  }
+  const onCreate = (): void => {
+    if (ctx === undefined) return
+    void createSession(ctx, newCwd).then((result) => {
+      setFeedback(result.ok ? sdict.created : result.message)
+      if (typeof window !== 'undefined') {
+        window.setTimeout(() => setFeedback(undefined), 2000)
+      }
+      if (result.ok) {
+        setNewCwd('')
+        onRefresh()
+      }
+    })
+  }
+  const beginEdit = (entry: SessionSummary): void => {
+    setEditingId(entry.sessionId)
+    setEditingValue(entry.title ?? '')
+  }
+  const commitEdit = (): void => {
+    if (ctx === undefined || editingId === undefined) return
+    const sessionId = editingId
+    const title = editingValue
+    setEditingId(undefined)
+    setEditingValue('')
+    void renameSession(ctx, sessionId, title).then((result) => {
+      setFeedback(result.ok ? sdict.renamed : result.message)
+      if (typeof window !== 'undefined') {
+        window.setTimeout(() => setFeedback(undefined), 2000)
+      }
+      if (result.ok) onRefresh()
+    })
+  }
+  const onCancel = (sessionId: string): void => {
+    if (ctx === undefined) return
+    void cancelSession(ctx, sessionId).then((result) => {
+      setFeedback(result.ok ? sdict.cancelled : result.message)
+      if (typeof window !== 'undefined') {
+        window.setTimeout(() => setFeedback(undefined), 2000)
+      }
+      if (result.ok) onRefresh()
+    })
+  }
+  const visible = filterSessions(sessions, status)
   const list = sessionsError !== undefined
     ? createElement('span', { style: noteStyle }, sessionsError)
     : sessions.length === 0
       ? createElement('span', { style: noteStyle }, sdict.empty)
-      : createElement('div', {
-        style: { display: 'flex', flexDirection: 'column', gap: '4px' },
-        'data-dsh-plugin': 'ice-tools',
-        'data-dsh-part': 'session-list',
-      },
-        sessions.map((entry) => {
-          const copied = copyFlash === `copied:${entry.sessionId}`
-          return createElement('div', {
-            key: entry.sessionId,
-            style: {
-              display: 'grid',
-              gridTemplateColumns: '1fr auto auto',
-              gap: '8px',
-              alignItems: 'center',
-              padding: '4px 8px',
-              borderRadius: '6px',
-              background: 'var(--dsw-alias-bg-row, rgba(127,127,127,0.05))',
-            },
-            'data-dsh-session-id': entry.sessionId,
-          },
-            createElement('code', {
+      : visible.length === 0
+        ? createElement('span', { style: noteStyle }, sdict.emptyFilter)
+        : createElement('div', {
+          style: { display: 'flex', flexDirection: 'column', gap: '4px' },
+          'data-dsh-plugin': 'ice-tools',
+          'data-dsh-part': 'session-list',
+        },
+          visible.map((entry) => {
+            const copied = copyFlash === `copied:${entry.sessionId}`
+            const editing = editingId === entry.sessionId
+            return createElement('div', {
+              key: entry.sessionId,
               style: {
-                fontFamily: 'var(--dsw-alias-font-mono, ui-monospace, monospace)',
-                fontSize: '12px',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '4px',
+                padding: '6px 10px',
+                borderRadius: '6px',
+                background: 'var(--dsw-alias-bg-row, rgba(127,127,127,0.05))',
               },
-            }, entry.sessionId),
-            createElement('span', { style: { fontSize: '12px' } }, entry.running === true ? sdict.running : sdict.idle),
-            createElement('button', {
-              type: 'button',
-              style: { ...buttonStyle, padding: '4px 8px' },
-              onClick: () => onCopy(entry.sessionId),
-            }, copied ? sdict.copied : sdict.copy),
-          )
-        }),
-        copyFlash === 'failed'
-          ? createElement('span', { style: { ...noteStyle, color: 'var(--dsw-alias-danger, #b42318)' } }, sdict.copyFailed)
-          : null,
-      )
+              'data-dsh-session-id': entry.sessionId,
+              'data-dsh-running': entry.running === true ? 'true' : 'false',
+            },
+              createElement('div', {
+                style: {
+                  display: 'grid',
+                  gridTemplateColumns: '1fr auto auto auto',
+                  gap: '8px',
+                  alignItems: 'center',
+                },
+              },
+                editing
+                  ? createElement('input', {
+                    type: 'text',
+                    value: editingValue,
+                    style: { ...inputStyle, fontFamily: 'inherit' },
+                    onChange: (e: { target: { value: string } }) => setEditingValue(e.target.value),
+                    onBlur: () => commitEdit(),
+                    onKeyDown: (e: { key: string }) => {
+                      if (e.key === 'Enter') commitEdit()
+                      if (e.key === 'Escape') { setEditingId(undefined); setEditingValue('') }
+                    },
+                    autoFocus: true,
+                  })
+                  : createElement('code', {
+                    style: {
+                      fontFamily: 'var(--dsw-alias-font-mono, ui-monospace, monospace)',
+                      fontSize: '12px',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      cursor: 'pointer',
+                    },
+                    onClick: () => beginEdit(entry),
+                    title: entry.sessionId,
+                  }, entry.sessionId),
+                createElement('span', {
+                  style: {
+                    fontSize: '11px',
+                    padding: '1px 6px',
+                    borderRadius: '4px',
+                    background: entry.running === true ? 'var(--dsw-alias-success-bg, #d1f7e0)' : 'var(--dsw-alias-bg-row, #eee)',
+                    color: entry.running === true ? 'var(--dsw-alias-success, #0a7d2c)' : 'var(--dsw-alias-label-secondary, #666)',
+                  },
+                }, entry.running === true ? sdict.running : sdict.idle),
+                createElement('button', {
+                  type: 'button',
+                  style: { ...buttonStyle, padding: '2px 8px', fontSize: '11px' },
+                  onClick: () => onCopy(entry.sessionId),
+                }, copied ? sdict.copied : sdict.copy),
+                createElement('button', {
+                  type: 'button',
+                  style: { ...buttonStyle, padding: '2px 8px', fontSize: '11px' },
+                  disabled: entry.running !== true,
+                  onClick: () => onCancel(entry.sessionId),
+                }, sdict.cancel),
+              ),
+              createElement('div', { style: { display: 'flex', gap: '8px', alignItems: 'center', fontSize: '11px', color: 'var(--dsw-alias-label-secondary, #666)' } },
+                entry.title !== undefined && entry.title.length > 0
+                  ? createElement('span', { style: { cursor: 'pointer' }, onClick: () => beginEdit(entry) }, entry.title)
+                  : createElement('span', { style: { fontStyle: 'italic' } }, sdict.untitled),
+                entry.cwd !== undefined ? createElement('span', { style: { fontFamily: 'var(--dsw-alias-font-mono, ui-monospace, monospace)' } }, entry.cwd) : null,
+              ),
+            )
+          }),
+          copyFlash === 'failed'
+            ? createElement('span', { style: { ...noteStyle, color: 'var(--dsw-alias-danger, #b42318)' } }, sdict.copyFailed)
+            : null,
+        )
   return createElement('div', {
     key: 'session-id',
     style: { display: 'flex', flexDirection: 'column', gap: '8px', padding: '8px 0' },
     'data-dsh-plugin': 'ice-tools',
     'data-dsh-part': 'session-id',
   },
-    createElement('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } },
+    createElement('div', { style: { display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' } },
       createElement('span', { style: { fontWeight: 600 } }, sdict.title),
       createElement('button', {
         type: 'button',
@@ -471,7 +574,54 @@ function SessionIdBlock({ dict, ctx }: { readonly dict: typeof zh; readonly ctx:
         'data-dsh-plugin': 'ice-tools',
         'data-dsh-part': 'session-refresh',
       }, sessionsRunning ? '…' : sdict.refresh),
+      createElement('button', {
+        type: 'button',
+        style: { ...buttonStyle, padding: '4px 8px' },
+        onClick: onCopyAll,
+        disabled: sessions.length === 0,
+        'data-dsh-plugin': 'ice-tools',
+        'data-dsh-part': 'session-copy-all',
+      }, sdict.copyAll),
+      createElement('div', { style: { display: 'flex', gap: '4px' } },
+        (['all', 'running', 'idle'] as const).map((option) =>
+          createElement('button', {
+            key: option,
+            type: 'button',
+            style: {
+              ...buttonStyle,
+              padding: '2px 8px',
+              fontSize: '12px',
+              background: status === option ? 'var(--dsw-alias-bg-elevated, #ddd)' : undefined,
+            },
+            onClick: () => setStatus(option),
+            'data-dsh-filter': option,
+          }, sdict[`filter${option[0]!.toUpperCase()}${option.slice(1)}` as keyof typeof sdict] as string),
+        ),
+      ),
     ),
+    createElement('div', { style: { display: 'flex', gap: '8px' } },
+      createElement('input', {
+        type: 'text',
+        value: newCwd,
+        placeholder: sdict.newCwdPlaceholder,
+        style: { ...inputStyle, flex: 1 },
+        onChange: (e: { target: { value: string } }) => setNewCwd(e.target.value),
+        onKeyDown: (e: { key: string }) => { if (e.key === 'Enter') onCreate() },
+        'data-dsh-plugin': 'ice-tools',
+        'data-dsh-part': 'session-cwd',
+      }),
+      createElement('button', {
+        type: 'button',
+        style: buttonStyle,
+        onClick: onCreate,
+        disabled: ctx === undefined,
+        'data-dsh-plugin': 'ice-tools',
+        'data-dsh-part': 'session-create',
+      }, sdict.newSession),
+    ),
+    feedback
+      ? createElement('span', { style: { ...noteStyle, color: 'var(--dsw-alias-success, #0a7d2c)' } }, feedback)
+      : null,
     list,
   )
 }

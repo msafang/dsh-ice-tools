@@ -38,10 +38,24 @@ export interface SessionIdDictionary {
   readonly refresh: string
   readonly copy: string
   readonly copied: string
+  readonly copyAll: string
+  readonly copiedAll: string
   readonly copyFailed: string
   readonly empty: string
+  readonly emptyFilter: string
   readonly running: string
   readonly idle: string
+  readonly filterAll: string
+  readonly filterRunning: string
+  readonly filterIdle: string
+  readonly newCwdPlaceholder: string
+  readonly newSession: string
+  readonly created: string
+  readonly cancel: string
+  readonly cancelled: string
+  readonly rename: string
+  readonly renamed: string
+  readonly untitled: string
 }
 
 export const sessionId: SessionIdDictionary = {
@@ -49,10 +63,24 @@ export const sessionId: SessionIdDictionary = {
   refresh: '刷新',
   copy: '复制',
   copied: '已复制',
+  copyAll: '复制全部',
+  copiedAll: '已复制全部 id',
   copyFailed: '复制失败',
   empty: '没有会话。',
+  emptyFilter: '当前过滤条件下没有会话。',
   running: '运行中',
   idle: '空闲',
+  filterAll: '全部',
+  filterRunning: '运行中',
+  filterIdle: '空闲',
+  newCwdPlaceholder: '工作目录 (可留空)',
+  newSession: '新建会话',
+  created: '已新建会话。',
+  cancel: '取消',
+  cancelled: '已发送取消请求。',
+  rename: '重命名',
+  renamed: '已重命名。',
+  untitled: '（无标题）',
 }
 
 export interface SkillExplorerDictionary {
