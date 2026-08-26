@@ -164,6 +164,12 @@ window.__ModuleLoader__.load({
 			chatRecovery: {
 				title: "Chat Recovery",
 				note: "A Host-side failure event stream is required to list recoverable sessions."
+			},
+			pageHints: {
+				toggleGuidance: "Toggle a row above to enable its block below; untoggle to hide it.",
+				resetButton: "Reset to defaults",
+				resetConfirm: "Reset will clear your current toggle overrides. Continue?",
+				resetDone: "Reset complete."
 			}
 		};
 		const zh = {
@@ -324,6 +330,12 @@ window.__ModuleLoader__.load({
 			chatRecovery: {
 				title: "对话恢复",
 				note: "需要 Host 提供失败会话事件流才能列出可恢复项。"
+			},
+			pageHints: {
+				toggleGuidance: "勾选上面的选项即可启用对应工具；取消勾选则隐藏。",
+				resetButton: "重置为默认",
+				resetConfirm: "重置后将清除当前所有自定义 toggle 设置，确定吗？",
+				resetDone: "已重置。"
 			}
 		};
 		//#endregion
@@ -346,13 +358,21 @@ window.__ModuleLoader__.load({
 			"gitGraph",
 			"taskBoard"
 		];
+		/**
+		* Defaults for the toggle surface. Two utilities are flipped on by default
+		* because they are useful on every ICE Tools visit: the doctor checks the
+		* runtime and the session list gives the user an immediate handle on the
+		* current session id. The other six are off until the user opts in — they
+		* reach for niche utilities (skill catalogue, patch browser, git graph,
+		* task list, recovery log) and the empty state already hints at them.
+		*/
 		const DEFAULT_ENABLED = {
 			settingsHub: true,
 			pluginManager: false,
 			chatRecovery: false,
 			desktopLauncher: false,
-			doctor: false,
-			sessionId: false,
+			doctor: true,
+			sessionId: true,
 			skillExplorer: false,
 			gitGraph: false,
 			taskBoard: false
@@ -1303,6 +1323,7 @@ window.__ModuleLoader__.load({
 			const { scope, locale, ctx } = props;
 			const [settings, setSettings] = (0, react.useState)(() => scope.getSnapshot());
 			const [localeSnapshot, setLocaleSnapshot] = (0, react.useState)(() => locale.getSnapshot());
+			const [resetFlash, setResetFlash] = (0, react.useState)(false);
 			(0, react.useEffect)(() => {
 				const offSettings = scope.subscribe(() => setSettings(scope.getSnapshot()));
 				const offLocale = locale.subscribe(() => setLocaleSnapshot(locale.getSnapshot()));
@@ -1324,6 +1345,14 @@ window.__ModuleLoader__.load({
 					[name]: next
 				});
 			};
+			const onReset = () => {
+				if (typeof window !== "undefined") {
+					if (!window.confirm(dict.pageHints.resetConfirm)) return;
+				}
+				scope.unset("enabled");
+				setResetFlash(true);
+				if (typeof window !== "undefined") window.setTimeout(() => setResetFlash(false), 1500);
+			};
 			const rows = MODULE_NAMES.map((id) => (0, react.createElement)("label", {
 				key: id,
 				style: rowStyle,
@@ -1336,11 +1365,40 @@ window.__ModuleLoader__.load({
 				disabled: id === "settingsHub" || !writable,
 				onChange: (event) => toggle(id, event.target.checked)
 			}), (0, react.createElement)("span", { style: labelStyle }, dict.modules[id].label), (0, react.createElement)("span", { style: descStyle }, dict.modules[id].description)));
+			const headerRow = (0, react.createElement)("div", {
+				key: "header",
+				style: {
+					display: "flex",
+					gap: "8px",
+					alignItems: "center",
+					flexWrap: "wrap",
+					padding: "4px 0"
+				},
+				"data-dsh-plugin": "ice-tools",
+				"data-dsh-part": "settings-header"
+			}, (0, react.createElement)("span", { style: {
+				...noteStyle,
+				flex: 1
+			} }, dict.pageHints.toggleGuidance), resetFlash ? (0, react.createElement)("span", { style: {
+				...noteStyle,
+				color: "var(--dsw-alias-success, #0a7d2c)"
+			} }, dict.pageHints.resetDone) : null, (0, react.createElement)("button", {
+				type: "button",
+				style: {
+					...buttonStyle,
+					padding: "4px 10px",
+					fontSize: "12px"
+				},
+				onClick: onReset,
+				disabled: !writable,
+				"data-dsh-plugin": "ice-tools",
+				"data-dsh-part": "settings-reset"
+			}, dict.pageHints.resetButton));
 			const blockFor = (id, element) => enabled[id] ? element : null;
 			return (0, react.createElement)("section", {
 				"data-dsh-plugin": "ice-tools",
 				style: sectionStyle
-			}, rows, blockFor("doctor", (0, react.createElement)(DoctorBlock, {
+			}, headerRow, rows, blockFor("doctor", (0, react.createElement)(DoctorBlock, {
 				key: "doctor",
 				dict,
 				ctx
