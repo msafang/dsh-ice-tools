@@ -821,17 +821,48 @@ function activeLocale(ctx: ClientContext | undefined): 'en' | 'zh' {
 
 function PluginManagerBlock({ dict }: { readonly dict: typeof zh }): ReactElement {
   const sdict = dict.pluginManager
-  // Parse the in-repo profile patch as a static source of truth: it is the
-  // same file the loader reads, so the surface stays consistent with the
-  // resolved loader state at runtime.
   const parsed = parseCordisPatch(CORDIS_PATCH_SOURCE)
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+  const [copiedPath, setCopiedPath] = useState(false)
+  const duplicateIds = new Set(parsed.duplicates.map((entry) => entry.id))
+  const onCopyPath = (): void => {
+    void copyToClipboard(PATCH_PATH).then((outcome) => {
+      setCopiedPath(outcome.ok)
+      if (typeof window !== 'undefined') {
+        window.setTimeout(() => setCopiedPath(false), 1500)
+      }
+    })
+  }
   return createElement('div', {
     key: 'plugin-manager',
     style: { display: 'flex', flexDirection: 'column', gap: '8px', padding: '8px 0' },
     'data-dsh-plugin': 'ice-tools',
     'data-dsh-part': 'plugin-manager',
   },
-    createElement('span', { style: { fontWeight: 600 } }, sdict.title),
+    createElement('div', { style: { display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' } },
+      createElement('span', { style: { fontWeight: 600 } }, sdict.title),
+      createElement('span', {
+        style: { ...noteStyle, fontFamily: 'var(--dsw-alias-font-mono, ui-monospace, monospace)' },
+        'data-dsh-plugin': 'ice-tools',
+        'data-dsh-part': 'plugin-source',
+      }, PATCH_PATH),
+      createElement('button', {
+        type: 'button',
+        style: { ...buttonStyle, padding: '2px 8px', fontSize: '11px' },
+        onClick: onCopyPath,
+        'data-dsh-plugin': 'ice-tools',
+        'data-dsh-part': 'plugin-copy-path',
+      }, copiedPath ? sdict.copiedPath : sdict.copyPath),
+    ),
+    parsed.duplicates.length > 0
+      ? createElement('div', {
+        style: { ...noteStyle, color: 'var(--dsw-alias-danger, #b42318)' },
+        'data-dsh-plugin': 'ice-tools',
+        'data-dsh-part': 'plugin-duplicates',
+      },
+        `${sdict.duplicates}: ${parsed.duplicates.map((entry) => `${entry.id} (${entry.lines.join(', ')})`).join('; ')}`,
+      )
+      : null,
     parsed.rows.length === 0
       ? createElement('span', { style: noteStyle }, sdict.empty)
       : createElement('div', {
@@ -839,24 +870,81 @@ function PluginManagerBlock({ dict }: { readonly dict: typeof zh }): ReactElemen
         'data-dsh-plugin': 'ice-tools',
         'data-dsh-part': 'plugin-rows',
       },
-        parsed.rows.map((row, index) =>
-          createElement('div', {
+        parsed.rows.map((row, index) => {
+          const isExpanded = expanded[`${row.id}-${index}`] === true
+          const isDuplicate = duplicateIds.has(row.id)
+          return createElement('div', {
             key: `${row.id}-${index}`,
             style: {
               display: 'flex',
-              justifyContent: 'space-between',
-              padding: '4px 8px',
+              flexDirection: 'column',
+              gap: '4px',
+              padding: '6px 10px',
               borderRadius: '6px',
-              background: 'var(--dsw-alias-bg-row, rgba(127,127,127,0.05))',
-              fontSize: '12px',
-              fontFamily: 'var(--dsw-alias-font-mono, ui-monospace, monospace)',
+              background: isDuplicate
+                ? 'rgba(180, 35, 24, 0.08)'
+                : 'var(--dsw-alias-bg-row, rgba(127,127,127,0.05))',
             },
             'data-dsh-row-id': row.id,
+            'data-dsh-row-line': row.line,
+            'data-dsh-row-duplicate': isDuplicate ? 'true' : 'false',
           },
-            createElement('span', null, row.id),
-            createElement('span', { style: { color: 'var(--dsw-alias-label-secondary, #666)' } }, row.name ?? ''),
-          ),
-        ),
+            createElement('div', {
+              style: {
+                display: 'grid',
+                gridTemplateColumns: '1fr auto auto',
+                gap: '8px',
+                alignItems: 'center',
+              },
+            },
+              createElement('span', {
+                style: {
+                  fontFamily: 'var(--dsw-alias-font-mono, ui-monospace, monospace)',
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                },
+                onClick: () => setExpanded((current) => ({ ...current, [`${row.id}-${index}`]: !isExpanded })),
+              }, row.id),
+              createElement('span', {
+                style: { ...noteStyle, fontSize: '11px' },
+              }, `L${row.line}`),
+              createElement('button', {
+                type: 'button',
+                style: { ...buttonStyle, padding: '2px 8px', fontSize: '11px' },
+                onClick: () => setExpanded((current) => ({ ...current, [`${row.id}-${index}`]: !isExpanded })),
+                'aria-label': isExpanded ? sdict.collapse : sdict.expand,
+              }, isExpanded ? '−' : '+'),
+            ),
+            row.name !== undefined
+              ? createElement('span', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-secondary, #666)' } }, row.name)
+              : null,
+            isExpanded
+              ? createElement('div', {
+                style: { display: 'flex', flexDirection: 'column', gap: '2px', marginTop: '4px' },
+                'data-dsh-plugin': 'ice-tools',
+                'data-dsh-part': 'plugin-row-config',
+              },
+                Object.keys(row.config).length === 0
+                  ? createElement('span', { style: { ...noteStyle, fontStyle: 'italic' } }, sdict.noConfig)
+                  : Object.entries(row.config).map(([key, value]) =>
+                      createElement('div', {
+                        key,
+                        style: {
+                          display: 'grid',
+                          gridTemplateColumns: '120px 1fr',
+                          gap: '8px',
+                          fontSize: '11px',
+                          fontFamily: 'var(--dsw-alias-font-mono, ui-monospace, monospace)',
+                        },
+                      },
+                        createElement('span', { style: { color: 'var(--dsw-alias-label-secondary, #666)' } }, key),
+                        createElement('span', null, value),
+                      ),
+                    ),
+              )
+              : null,
+          )
+        }),
       ),
   )
 }
@@ -1095,6 +1183,8 @@ function ChatRecoveryBlock({ dict }: { readonly dict: typeof zh }): ReactElement
     createElement('span', { style: noteStyle }, state.status === 'requires-host' ? sdict.note : ''),
   )
 }
+
+const PATCH_PATH = '~/.dsh/profiles/web/cordis.patch.yml'
 
 const CORDIS_PATCH_SOURCE = `- insert:
     - id: tool-subagent-codex

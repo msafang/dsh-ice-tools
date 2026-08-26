@@ -118,11 +118,23 @@ export const desktopLauncher: DesktopLauncherDictionary = {
 export interface PluginManagerDictionary {
   readonly title: string
   readonly empty: string
+  readonly copyPath: string
+  readonly copiedPath: string
+  readonly expand: string
+  readonly collapse: string
+  readonly noConfig: string
+  readonly duplicates: string
 }
 
 export const pluginManager: PluginManagerDictionary = {
   title: '插件管理',
   empty: '未发现额外 patch 行。',
+  copyPath: '复制路径',
+  copiedPath: '已复制',
+  expand: '展开',
+  collapse: '收起',
+  noConfig: '（无 config 字段）',
+  duplicates: '检测到重复 id',
 }
 
 export interface GitGraphDictionary {

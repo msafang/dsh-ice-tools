@@ -150,6 +150,12 @@ export const en: {
   pluginManager: {
     title: 'Plugin Manager',
     empty: 'No extra patch rows.',
+    copyPath: 'Copy path',
+    copiedPath: 'Copied',
+    expand: 'Expand',
+    collapse: 'Collapse',
+    noConfig: '(no config block)',
+    duplicates: 'Duplicate ids detected',
   },
   gitGraph: {
     title: 'Git Graph',
