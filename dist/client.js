@@ -146,7 +146,13 @@ window.__ModuleLoader__.load({
 			},
 			pluginManager: {
 				title: "Plugin Manager",
-				empty: "No extra patch rows."
+				empty: "No extra patch rows.",
+				copyPath: "Copy path",
+				copiedPath: "Copied",
+				expand: "Expand",
+				collapse: "Collapse",
+				noConfig: "(no config block)",
+				duplicates: "Duplicate ids detected"
 			},
 			gitGraph: {
 				title: "Git Graph",
@@ -326,7 +332,13 @@ window.__ModuleLoader__.load({
 			},
 			pluginManager: {
 				title: "插件管理",
-				empty: "未发现额外 patch 行。"
+				empty: "未发现额外 patch 行。",
+				copyPath: "复制路径",
+				copiedPath: "已复制",
+				expand: "展开",
+				collapse: "收起",
+				noConfig: "（无 config 字段）",
+				duplicates: "检测到重复 id"
 			},
 			gitGraph: {
 				title: "Git 图谱",
@@ -1061,11 +1073,14 @@ window.__ModuleLoader__.load({
 		* Light YAML extractor for the cordis patch format the DSH loader emits.
 		* We do not depend on a YAML parser (the plugin stays runtime-dep-free);
 		* this walker handles the subset we care about: top-level `insert:`
-		* lists of `- id: ... -- optional name: ...` mappings.
+		* lists of `- id: ... -- optional name: ... -- optional config: { ... }`
+		* mappings.
 		*/
 		function parseCordisPatch(source) {
 			const rows = [];
 			const unrecognized = [];
+			const lineStarts = computeLineStarts(source);
+			const recordIndex = /* @__PURE__ */ new Map();
 			const insertBlocks = source.split(/\n-?\s*insert:\s*/).slice(1);
 			for (const block of insertBlocks) {
 				const segment = block.split(/\n-?\s*(?:-?\s*insert:|[a-z]+:)/)[0] ?? block;
@@ -1075,18 +1090,90 @@ window.__ModuleLoader__.load({
 					if (firstLine.length > 0) unrecognized.push(firstLine);
 					continue;
 				}
-				const row = {
-					id: idMatch[1],
-					kind: "insert"
-				};
+				const id = idMatch[1];
+				const startLine = lineStarts.length === 0 ? 0 : lineStarts.findIndex((offset) => offset > source.length - block.length) + 1;
 				const nameMatch = segment.match(/\n\s*name:\s*([^\n#]+)/);
-				if (nameMatch !== null) row.name = nameMatch[1].trim();
+				const configText = extractConfig(segment);
+				const configMap = parseConfigMap(configText);
+				const rawConfig = configText.trim();
+				const row = {
+					id,
+					...nameMatch === null ? {} : { name: nameMatch[1].trim() },
+					kind: "insert",
+					config: configMap,
+					rawConfig,
+					line: Math.max(1, startLine)
+				};
 				rows.push(row);
+				recordIndex.set(id, (recordIndex.get(id) ?? 0) + 1);
 			}
+			const duplicates = [];
+			const lineById = /* @__PURE__ */ new Map();
+			for (let idx = 0; idx < rows.length; idx += 1) {
+				const row = rows[idx];
+				const list = lineById.get(row.id) ?? [];
+				list.push(row.line);
+				lineById.set(row.id, list);
+			}
+			for (const [id, lines] of lineById.entries()) if (lines.length > 1) duplicates.push({
+				id,
+				lines
+			});
 			return {
 				rows,
-				unrecognized
+				unrecognized,
+				duplicates
 			};
+		}
+		function computeLineStarts(source) {
+			const starts = [0];
+			for (let i = 0; i < source.length; i += 1) if (source.charCodeAt(i) === 10) starts.push(i + 1);
+			return starts;
+		}
+		/**
+		* Pull the `config:` block out of one insert segment. The walker matches
+		* the loader's `config:` keyword, finds the matching `{`, and reads until
+		* the matching `}` (counting braces so nested values survive).
+		*/
+		function extractConfig(segment) {
+			const match = segment.match(/\n\s*config:\s*([\s\S]*)$/);
+			if (match === null) return "";
+			let depth = 0;
+			let end = 0;
+			let started = false;
+			for (let i = 0; i < match[1].length; i += 1) {
+				const ch = match[1].charAt(i);
+				if (ch === "{") {
+					depth += 1;
+					started = true;
+				} else if (ch === "}") {
+					depth -= 1;
+					if (started && depth === 0) {
+						end = i + 1;
+						break;
+					}
+				}
+			}
+			if (!started) return "";
+			return match[1].slice(0, end);
+		}
+		/**
+		* Parse the inner config block into a flat string map. The walker is
+		* intentionally shallow: nested objects stay a stringified copy in
+		* `rawConfig` so the UI can show the original text, while scalars and
+		* top-level keys land in `config` so toggles and indicators have data
+		* to act on.
+		*/
+		function parseConfigMap(raw) {
+			const trimmed = raw.trim();
+			const inner = trimmed.startsWith("{") ? trimmed.slice(1, trimmed.lastIndexOf("}")) : trimmed;
+			const map = {};
+			for (const line of inner.split("\n")) {
+				const match = line.match(/^\s*([A-Za-z_][\w-]*)\s*:\s*(.+?)\s*$/);
+				if (match === null) continue;
+				map[match[1]] = match[2];
+			}
+			return map;
 		}
 		//#endregion
 		//#region src/modules/git-graph/client.ts
@@ -2008,6 +2095,15 @@ window.__ModuleLoader__.load({
 		function PluginManagerBlock({ dict }) {
 			const sdict = dict.pluginManager;
 			const parsed = parseCordisPatch(CORDIS_PATCH_SOURCE);
+			const [expanded, setExpanded] = (0, react.useState)({});
+			const [copiedPath, setCopiedPath] = (0, react.useState)(false);
+			const duplicateIds = new Set(parsed.duplicates.map((entry) => entry.id));
+			const onCopyPath = () => {
+				copyToClipboard(PATCH_PATH).then((outcome) => {
+					setCopiedPath(outcome.ok);
+					if (typeof window !== "undefined") window.setTimeout(() => setCopiedPath(false), 1500);
+				});
+			};
 			return (0, react.createElement)("div", {
 				key: "plugin-manager",
 				style: {
@@ -2018,7 +2114,36 @@ window.__ModuleLoader__.load({
 				},
 				"data-dsh-plugin": "ice-tools",
 				"data-dsh-part": "plugin-manager"
-			}, (0, react.createElement)("span", { style: { fontWeight: 600 } }, sdict.title), parsed.rows.length === 0 ? (0, react.createElement)("span", { style: noteStyle }, sdict.empty) : (0, react.createElement)("div", {
+			}, (0, react.createElement)("div", { style: {
+				display: "flex",
+				gap: "8px",
+				alignItems: "center",
+				flexWrap: "wrap"
+			} }, (0, react.createElement)("span", { style: { fontWeight: 600 } }, sdict.title), (0, react.createElement)("span", {
+				style: {
+					...noteStyle,
+					fontFamily: "var(--dsw-alias-font-mono, ui-monospace, monospace)"
+				},
+				"data-dsh-plugin": "ice-tools",
+				"data-dsh-part": "plugin-source"
+			}, PATCH_PATH), (0, react.createElement)("button", {
+				type: "button",
+				style: {
+					...buttonStyle,
+					padding: "2px 8px",
+					fontSize: "11px"
+				},
+				onClick: onCopyPath,
+				"data-dsh-plugin": "ice-tools",
+				"data-dsh-part": "plugin-copy-path"
+			}, copiedPath ? sdict.copiedPath : sdict.copyPath)), parsed.duplicates.length > 0 ? (0, react.createElement)("div", {
+				style: {
+					...noteStyle,
+					color: "var(--dsw-alias-danger, #b42318)"
+				},
+				"data-dsh-plugin": "ice-tools",
+				"data-dsh-part": "plugin-duplicates"
+			}, `${sdict.duplicates}: ${parsed.duplicates.map((entry) => `${entry.id} (${entry.lines.join(", ")})`).join("; ")}`) : null, parsed.rows.length === 0 ? (0, react.createElement)("span", { style: noteStyle }, sdict.empty) : (0, react.createElement)("div", {
 				style: {
 					display: "flex",
 					flexDirection: "column",
@@ -2026,19 +2151,78 @@ window.__ModuleLoader__.load({
 				},
 				"data-dsh-plugin": "ice-tools",
 				"data-dsh-part": "plugin-rows"
-			}, parsed.rows.map((row, index) => (0, react.createElement)("div", {
-				key: `${row.id}-${index}`,
-				style: {
-					display: "flex",
-					justifyContent: "space-between",
-					padding: "4px 8px",
-					borderRadius: "6px",
-					background: "var(--dsw-alias-bg-row, rgba(127,127,127,0.05))",
-					fontSize: "12px",
-					fontFamily: "var(--dsw-alias-font-mono, ui-monospace, monospace)"
-				},
-				"data-dsh-row-id": row.id
-			}, (0, react.createElement)("span", null, row.id), (0, react.createElement)("span", { style: { color: "var(--dsw-alias-label-secondary, #666)" } }, row.name ?? "")))));
+			}, parsed.rows.map((row, index) => {
+				const isExpanded = expanded[`${row.id}-${index}`] === true;
+				const isDuplicate = duplicateIds.has(row.id);
+				return (0, react.createElement)("div", {
+					key: `${row.id}-${index}`,
+					style: {
+						display: "flex",
+						flexDirection: "column",
+						gap: "4px",
+						padding: "6px 10px",
+						borderRadius: "6px",
+						background: isDuplicate ? "rgba(180, 35, 24, 0.08)" : "var(--dsw-alias-bg-row, rgba(127,127,127,0.05))"
+					},
+					"data-dsh-row-id": row.id,
+					"data-dsh-row-line": row.line,
+					"data-dsh-row-duplicate": isDuplicate ? "true" : "false"
+				}, (0, react.createElement)("div", { style: {
+					display: "grid",
+					gridTemplateColumns: "1fr auto auto",
+					gap: "8px",
+					alignItems: "center"
+				} }, (0, react.createElement)("span", {
+					style: {
+						fontFamily: "var(--dsw-alias-font-mono, ui-monospace, monospace)",
+						fontSize: "12px",
+						cursor: "pointer"
+					},
+					onClick: () => setExpanded((current) => ({
+						...current,
+						[`${row.id}-${index}`]: !isExpanded
+					}))
+				}, row.id), (0, react.createElement)("span", { style: {
+					...noteStyle,
+					fontSize: "11px"
+				} }, `L${row.line}`), (0, react.createElement)("button", {
+					type: "button",
+					style: {
+						...buttonStyle,
+						padding: "2px 8px",
+						fontSize: "11px"
+					},
+					onClick: () => setExpanded((current) => ({
+						...current,
+						[`${row.id}-${index}`]: !isExpanded
+					})),
+					"aria-label": isExpanded ? sdict.collapse : sdict.expand
+				}, isExpanded ? "−" : "+")), row.name !== void 0 ? (0, react.createElement)("span", { style: {
+					fontSize: "11px",
+					color: "var(--dsw-alias-label-secondary, #666)"
+				} }, row.name) : null, isExpanded ? (0, react.createElement)("div", {
+					style: {
+						display: "flex",
+						flexDirection: "column",
+						gap: "2px",
+						marginTop: "4px"
+					},
+					"data-dsh-plugin": "ice-tools",
+					"data-dsh-part": "plugin-row-config"
+				}, Object.keys(row.config).length === 0 ? (0, react.createElement)("span", { style: {
+					...noteStyle,
+					fontStyle: "italic"
+				} }, sdict.noConfig) : Object.entries(row.config).map(([key, value]) => (0, react.createElement)("div", {
+					key,
+					style: {
+						display: "grid",
+						gridTemplateColumns: "120px 1fr",
+						gap: "8px",
+						fontSize: "11px",
+						fontFamily: "var(--dsw-alias-font-mono, ui-monospace, monospace)"
+					}
+				}, (0, react.createElement)("span", { style: { color: "var(--dsw-alias-label-secondary, #666)" } }, key), (0, react.createElement)("span", null, value)))) : null);
+			})));
 		}
 		function GitGraphBlock({ dict }) {
 			const sdict = dict.gitGraph;
@@ -2295,6 +2479,7 @@ window.__ModuleLoader__.load({
 				"data-dsh-part": "chat-recovery"
 			}, (0, react.createElement)("span", { style: { fontWeight: 600 } }, sdict.title), (0, react.createElement)("span", { style: noteStyle }, state.status === "requires-host" ? sdict.note : ""));
 		}
+		const PATCH_PATH = "~/.dsh/profiles/web/cordis.patch.yml";
 		const CORDIS_PATCH_SOURCE = `- insert:
     - id: tool-subagent-codex
       name: '@deepseek-ai/dsh-tool-subagent'
