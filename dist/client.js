@@ -164,7 +164,13 @@ window.__ModuleLoader__.load({
 			},
 			gitGraph: {
 				title: "Git Graph",
-				note: "A Host-side git subprocess service is required to render the graph."
+				hint: "Paste git log --graph --oneline output below to render",
+				placeholder: "Paste git log --graph --oneline output here…",
+				empty: "Nothing to render yet.",
+				commits: "commits",
+				merges: "merges",
+				branches: "branches",
+				other: "other"
 			},
 			taskBoard: {
 				title: "Task Board",
@@ -358,7 +364,13 @@ window.__ModuleLoader__.load({
 			},
 			gitGraph: {
 				title: "Git 图谱",
-				note: "需要 Host 提供 git 子进程服务才能渲染图谱。"
+				hint: "把 git log --graph --oneline 输出粘贴到下方以渲染",
+				placeholder: "把 git log --graph --oneline 输出粘贴到这里…",
+				empty: "暂无内容。",
+				commits: "提交",
+				merges: "合并",
+				branches: "分支",
+				other: "其它"
 			},
 			taskBoard: {
 				title: "任务看板",
@@ -1265,8 +1277,66 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region src/modules/git-graph/client.ts
-		function readGitGraphState() {
-			return { status: "requires-host" };
+		/**
+		* Parse a single `git log --graph` output line. The classifier is
+		* intentionally shallow: it does not try to walk the graph topology, only
+		* to distinguish the lines that look like commits (one hash + message)
+		* from the lines that carry graph markers. The `depth` field is the number
+		* of leading graph characters, so the UI can indent continuation lines
+		* under their parent commit.
+		*/
+		function parseGitGraphLine(line) {
+			const trimmed = line.replace(/\s+$/, "");
+			if (trimmed.length === 0) return {
+				kind: "other",
+				text: "",
+				depth: 0
+			};
+			let depth = 0;
+			while (depth < trimmed.length) {
+				const ch = trimmed[depth];
+				if (ch === "*" || ch === "|" || ch === "+" || ch === "x" || ch === "-" || ch === "_") depth += 1;
+				else break;
+			}
+			const rest = trimmed.slice(depth).trim();
+			if (rest.length === 0) return {
+				kind: "branch",
+				text: "",
+				depth
+			};
+			if (rest.match(/^([0-9a-f]{7,})\s+(.+)$/) !== null) return {
+				kind: rest.includes("Merge:") || rest.startsWith("*") ? "merge" : "commit",
+				text: rest,
+				depth
+			};
+			return {
+				kind: "branch",
+				text: rest,
+				depth
+			};
+		}
+		/** Split a paste blob into lines, dropping the trailing empty line. */
+		function parseGitGraphOutput(source) {
+			const lines = source.replace(/\r\n/g, "\n").split("\n");
+			if (lines.length > 0 && lines[lines.length - 1].trim() === "") lines.pop();
+			return lines.map((line) => parseGitGraphLine(line));
+		}
+		function summarizeGraph(lines) {
+			let commitCount = 0;
+			let mergeCount = 0;
+			let branchCount = 0;
+			let otherCount = 0;
+			for (const line of lines) if (line.kind === "commit") commitCount += 1;
+			else if (line.kind === "merge") mergeCount += 1;
+			else if (line.kind === "branch") branchCount += 1;
+			else otherCount += 1;
+			return {
+				totalLines: lines.length,
+				commitCount,
+				mergeCount,
+				branchCount,
+				otherCount
+			};
 		}
 		//#endregion
 		//#region src/modules/task-board/client.ts
@@ -2479,7 +2549,9 @@ window.__ModuleLoader__.load({
 		}
 		function GitGraphBlock({ dict }) {
 			const sdict = dict.gitGraph;
-			const state = readGitGraphState();
+			const [pasted, setPasted] = (0, react.useState)("");
+			const parsed = parseGitGraphOutput(pasted);
+			const summary = summarizeGraph(parsed);
 			return (0, react.createElement)("div", {
 				key: "git-graph",
 				style: {
@@ -2490,7 +2562,46 @@ window.__ModuleLoader__.load({
 				},
 				"data-dsh-plugin": "ice-tools",
 				"data-dsh-part": "git-graph"
-			}, (0, react.createElement)("span", { style: { fontWeight: 600 } }, sdict.title), (0, react.createElement)("span", { style: noteStyle }, state.status === "requires-host" ? sdict.note : ""));
+			}, (0, react.createElement)("span", { style: { fontWeight: 600 } }, sdict.title), (0, react.createElement)("span", { style: noteStyle }, sdict.hint), (0, react.createElement)("textarea", {
+				value: pasted,
+				placeholder: sdict.placeholder,
+				style: {
+					...inputStyle,
+					minHeight: "96px",
+					fontFamily: "var(--dsw-alias-font-mono, ui-monospace, monospace)",
+					fontSize: "12px"
+				},
+				onChange: (e) => setPasted(e.target.value),
+				"data-dsh-plugin": "ice-tools",
+				"data-dsh-part": "git-graph-input"
+			}), parsed.length === 0 ? (0, react.createElement)("span", { style: noteStyle }, sdict.empty) : (0, react.createElement)("div", {
+				style: {
+					display: "flex",
+					flexDirection: "column",
+					gap: "2px",
+					padding: "8px 10px",
+					borderRadius: "8px",
+					background: "var(--dsw-alias-bg-row, rgba(127,127,127,0.05))",
+					fontFamily: "var(--dsw-alias-font-mono, ui-monospace, monospace)",
+					fontSize: "12px",
+					maxHeight: "300px",
+					overflow: "auto"
+				},
+				"data-dsh-plugin": "ice-tools",
+				"data-dsh-part": "git-graph-output"
+			}, (0, react.createElement)("span", { style: {
+				...noteStyle,
+				marginBottom: "4px"
+			} }, `${sdict.commits}: ${summary.commitCount} · ${sdict.merges}: ${summary.mergeCount} · ${sdict.branches}: ${summary.branchCount} · ${sdict.other}: ${summary.otherCount}`), parsed.map((line, idx) => (0, react.createElement)("div", {
+				key: idx,
+				style: {
+					display: "flex",
+					gap: "8px",
+					paddingLeft: `${line.depth * 8}px`,
+					whiteSpace: "pre"
+				},
+				"data-dsh-line-kind": line.kind
+			}, (0, react.createElement)("span", { style: { color: line.kind === "commit" ? "var(--dsw-alias-success, #0a7d2c)" : line.kind === "merge" ? "var(--dsw-alias-warning, #a86b00)" : line.kind === "branch" ? "var(--dsw-alias-label-secondary, #666)" : "inherit" } }, line.text)))));
 		}
 		function TaskBoardBlock({ dict }) {
 			const sdict = dict.taskBoard;
