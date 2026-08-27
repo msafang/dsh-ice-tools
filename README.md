@@ -89,6 +89,13 @@ The ICE Tools page also renders blocks that do not take a module toggle:
   `localStorage` under the key `dsh-ice-tools.tasks.v1`.
 - **Chat Recovery** — Notes the missing Host hook.
 
+## Changelog
+
+See [CHANGELOG.md](./CHANGELOG.md) for the per-release notes. The
+plugin tracks breaking changes through the version on
+`dist/index.js`; the settings surface is stable across the
+0.1.x series.
+
 ## License
 
 Apache-2.0.
