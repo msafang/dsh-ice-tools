@@ -48,7 +48,13 @@ window.__ModuleLoader__.load({
 			doctor: {
 				title: "Doctor",
 				runButton: "Run Doctor",
+				rerun: "Rerun",
 				running: "Running…",
+				passed: "passed",
+				failed: "failed",
+				ms: "ms",
+				lastRun: "Last run",
+				historyTitle: "History",
 				pass: "Pass",
 				fail: "Fail",
 				checks: {
@@ -234,9 +240,15 @@ window.__ModuleLoader__.load({
 			doctor: {
 				title: "诊断",
 				runButton: "运行诊断",
+				rerun: "重新运行",
 				running: "运行中…",
 				pass: "通过",
 				fail: "失败",
+				passed: "通过",
+				failed: "失败",
+				ms: "毫秒",
+				lastRun: "上次运行",
+				historyTitle: "历史记录",
 				checks: {
 					connection: {
 						label: "连接句柄",
@@ -1662,16 +1674,79 @@ window.__ModuleLoader__.load({
 				dict
 			})));
 		}
+		const DOCTOR_HISTORY_KEY = "dsh-ice-tools.doctor.history.v1";
+		const DOCTOR_HISTORY_LIMIT = 5;
+		function safeDoctorStorage() {
+			const g = typeof globalThis !== "undefined" ? globalThis : void 0;
+			return g?.window?.localStorage ?? g?.localStorage;
+		}
+		function loadDoctorHistory() {
+			const store = safeDoctorStorage();
+			if (store === void 0) return [];
+			const raw = store.getItem(DOCTOR_HISTORY_KEY);
+			if (raw === null) return [];
+			try {
+				const parsed = JSON.parse(raw);
+				if (!Array.isArray(parsed)) return [];
+				const entries = [];
+				for (const item of parsed) {
+					if (typeof item !== "object" || item === null) continue;
+					const candidate = item;
+					if (typeof candidate.ranAt !== "number") continue;
+					if (typeof candidate.pass !== "number") continue;
+					if (typeof candidate.fail !== "number") continue;
+					if (typeof candidate.durationMs !== "number") continue;
+					entries.push({
+						ranAt: candidate.ranAt,
+						pass: candidate.pass,
+						fail: candidate.fail,
+						durationMs: candidate.durationMs
+					});
+				}
+				return entries;
+			} catch {
+				return [];
+			}
+		}
+		function persistDoctorHistory(entries) {
+			const store = safeDoctorStorage();
+			if (store === void 0) return;
+			try {
+				store.setItem(DOCTOR_HISTORY_KEY, JSON.stringify(entries));
+			} catch {}
+		}
+		function summarize(run, durationMs) {
+			let pass = 0;
+			let fail = 0;
+			for (const result of run.results) if (result.pass) pass += 1;
+			else fail += 1;
+			return {
+				ranAt: run.ranAt,
+				pass,
+				fail,
+				durationMs
+			};
+		}
 		function DoctorBlock({ dict, ctx }) {
 			const sdict = dict.doctor;
 			const [doctorRun, setDoctorRun] = (0, react.useState)(void 0);
 			const [doctorRunning, setDoctorRunning] = (0, react.useState)(false);
+			const [history, setHistory] = (0, react.useState)(() => loadDoctorHistory());
+			const lastRunAt = history[0]?.ranAt;
 			const onRun = () => {
 				if (ctx === void 0 || doctorRunning) return;
 				setDoctorRunning(true);
+				const started = Date.now();
 				runDoctor(ctx).then((result) => {
+					const duration = Date.now() - started;
 					setDoctorRun(result);
 					setDoctorRunning(false);
+					const summary = summarize(result, duration);
+					setHistory((previous) => {
+						const next = [summary, ...previous].slice(0, DOCTOR_HISTORY_LIMIT);
+						persistDoctorHistory(next);
+						return next;
+					});
 				});
 			};
 			return (0, react.createElement)("div", {
@@ -1695,7 +1770,21 @@ window.__ModuleLoader__.load({
 				disabled: doctorRunning || ctx === void 0,
 				"data-dsh-plugin": "ice-tools",
 				"data-dsh-part": "doctor-run"
-			}, doctorRunning ? sdict.running : sdict.runButton)), doctorRun === void 0 ? (0, react.createElement)("span", { style: noteStyle }, doctorRunning ? sdict.running : "") : (0, react.createElement)("div", {
+			}, doctorRunning ? sdict.running : sdict.runButton), doctorRun !== void 0 ? (0, react.createElement)("button", {
+				type: "button",
+				style: {
+					...buttonStyle,
+					padding: "4px 8px",
+					fontSize: "12px"
+				},
+				onClick: onRun,
+				disabled: doctorRunning || ctx === void 0,
+				"data-dsh-plugin": "ice-tools",
+				"data-dsh-part": "doctor-rerun"
+			}, sdict.rerun) : null, lastRunAt !== void 0 ? (0, react.createElement)("span", { style: {
+				...noteStyle,
+				fontSize: "11px"
+			} }, `${sdict.lastRun}: ${formatTimeAgo(lastRunAt)}`) : null), doctorRun === void 0 ? (0, react.createElement)("span", { style: noteStyle }, doctorRunning ? sdict.running : "") : (0, react.createElement)("div", {
 				style: {
 					display: "flex",
 					flexDirection: "column",
@@ -1711,7 +1800,45 @@ window.__ModuleLoader__.load({
 			}, (0, react.createElement)("span", { style: r.pass ? checkPassStyle : checkFailStyle }, r.pass ? "✓" : "✗"), (0, react.createElement)("div", { style: {
 				display: "flex",
 				flexDirection: "column"
-			} }, (0, react.createElement)("span", { style: { fontSize: "13px" } }, sdict.checks[r.key].label), (0, react.createElement)("span", { style: noteStyle }, r.note)), (0, react.createElement)("span", { style: { fontSize: "12px" } }, r.pass ? sdict.pass : sdict.fail)))));
+			} }, (0, react.createElement)("span", { style: { fontSize: "13px" } }, sdict.checks[r.key].label), (0, react.createElement)("span", { style: noteStyle }, r.note)), (0, react.createElement)("span", { style: { fontSize: "12px" } }, r.pass ? sdict.pass : sdict.fail)))), history.length > 0 ? (0, react.createElement)("div", {
+				style: {
+					display: "flex",
+					flexDirection: "column",
+					gap: "4px",
+					marginTop: "4px"
+				},
+				"data-dsh-plugin": "ice-tools",
+				"data-dsh-part": "doctor-history"
+			}, (0, react.createElement)("span", { style: {
+				...noteStyle,
+				fontWeight: 600
+			} }, sdict.historyTitle), history.map((entry, index) => (0, react.createElement)("div", {
+				key: entry.ranAt,
+				style: {
+					display: "grid",
+					gridTemplateColumns: "auto 1fr auto auto",
+					gap: "8px",
+					fontSize: "11px",
+					padding: "4px 8px",
+					borderRadius: "6px",
+					background: "var(--dsw-alias-bg-row, rgba(127,127,127,0.05))"
+				},
+				"data-dsh-history-index": index
+			}, (0, react.createElement)("span", { style: { color: "var(--dsw-alias-label-secondary, #666)" } }, formatTime(entry.ranAt)), (0, react.createElement)("span", null, `${entry.pass} ${sdict.passed}, ${entry.fail} ${sdict.failed}`), (0, react.createElement)("span", { style: { color: "var(--dsw-alias-label-secondary, #666)" } }, `${entry.durationMs} ${sdict.ms}`), (0, react.createElement)("span", { style: { color: "var(--dsw-alias-label-secondary, #666)" } }, formatTimeAgo(entry.ranAt))))) : null);
+		}
+		function formatTime(ranAt) {
+			const date = new Date(ranAt);
+			return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}:${String(date.getSeconds()).padStart(2, "0")}`;
+		}
+		function formatTimeAgo(ranAt, now = Date.now()) {
+			const diff = Math.max(0, now - ranAt);
+			const seconds = Math.floor(diff / 1e3);
+			if (seconds < 60) return `${seconds}s ago`;
+			const minutes = Math.floor(seconds / 60);
+			if (minutes < 60) return `${minutes}m ago`;
+			const hours = Math.floor(minutes / 60);
+			if (hours < 24) return `${hours}h ago`;
+			return `${Math.floor(hours / 24)}d ago`;
 		}
 		function SessionIdBlock({ dict, ctx }) {
 			const sdict = dict.sessionId;
