@@ -38,7 +38,17 @@ const DEFAULT_ENABLED = {
 	taskBoard: false
 };
 function normalizeEnabled(value) {
-	const normalized = { ...DEFAULT_ENABLED };
+	const normalized = {
+		settingsHub: false,
+		pluginManager: false,
+		chatRecovery: false,
+		desktopLauncher: false,
+		doctor: false,
+		sessionId: false,
+		skillExplorer: false,
+		gitGraph: false,
+		taskBoard: false
+	};
 	for (const name of MODULE_NAMES) if (typeof value?.[name] === "boolean") normalized[name] = value[name];
 	normalized.settingsHub = true;
 	return normalized;

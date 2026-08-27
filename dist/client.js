@@ -418,7 +418,17 @@ window.__ModuleLoader__.load({
 			taskBoard: false
 		};
 		function normalizeEnabled(value) {
-			const normalized = { ...DEFAULT_ENABLED };
+			const normalized = {
+				settingsHub: false,
+				pluginManager: false,
+				chatRecovery: false,
+				desktopLauncher: false,
+				doctor: false,
+				sessionId: false,
+				skillExplorer: false,
+				gitGraph: false,
+				taskBoard: false
+			};
 			for (const name of MODULE_NAMES) if (typeof value?.[name] === "boolean") normalized[name] = value[name];
 			normalized.settingsHub = true;
 			return normalized;
@@ -1079,33 +1089,42 @@ window.__ModuleLoader__.load({
 		function parseCordisPatch(source) {
 			const rows = [];
 			const unrecognized = [];
-			const lineStarts = computeLineStarts(source);
 			const recordIndex = /* @__PURE__ */ new Map();
-			const insertBlocks = source.split(/\n-?\s*insert:\s*/).slice(1);
-			for (const block of insertBlocks) {
-				const segment = block.split(/\n-?\s*(?:-?\s*insert:|[a-z]+:)/)[0] ?? block;
-				const idMatch = segment.match(/^\s*-\s*id:\s*([^\s#]+)/);
-				if (idMatch === null) {
-					const firstLine = segment.split("\n")[0]?.trim() ?? "";
-					if (firstLine.length > 0) unrecognized.push(firstLine);
-					continue;
+			const keywordOffsets = [];
+			const keywordPattern = /\n?\s*-?\s*insert:\s*/g;
+			let match;
+			while ((match = keywordPattern.exec(source)) !== null) keywordOffsets.push(match.index);
+			for (let i = 0; i < keywordOffsets.length; i += 1) {
+				const keywordOffset = keywordOffsets[i];
+				const blockStartOffset = keywordOffset + (source.slice(keywordOffset).match(/^[\s\S]*?-?\s*insert:\s*/)?.[0].length ?? 0);
+				const endOffset = i + 1 < keywordOffsets.length ? keywordOffsets[i + 1] : source.length;
+				const rowSegments = splitRows(source.slice(blockStartOffset, endOffset));
+				let rowCursorOffset = blockStartOffset;
+				for (const segment of rowSegments) {
+					const idMatch = segment.match(/\n?\s*-\s*id:\s*([^\s#]+)/);
+					if (idMatch === null) {
+						const firstLine = segment.split("\n")[0]?.trim() ?? "";
+						if (firstLine.length > 0) unrecognized.push(firstLine);
+						continue;
+					}
+					const id = idMatch[1];
+					const startLine = computeLineOf(source, rowCursorOffset);
+					const nameMatch = segment.match(/\n\s*name:\s*['"]?([^'"\n#]+)['"]?/);
+					const configText = extractConfig(segment);
+					const configMap = parseConfigMap(configText);
+					const rawConfig = configText.trim();
+					const row = {
+						id,
+						...nameMatch === null ? {} : { name: nameMatch[1].trim() },
+						kind: "insert",
+						config: configMap,
+						rawConfig,
+						line: startLine
+					};
+					rows.push(row);
+					recordIndex.set(id, (recordIndex.get(id) ?? 0) + 1);
+					rowCursorOffset += segment.length;
 				}
-				const id = idMatch[1];
-				const startLine = lineStarts.length === 0 ? 0 : lineStarts.findIndex((offset) => offset > source.length - block.length) + 1;
-				const nameMatch = segment.match(/\n\s*name:\s*([^\n#]+)/);
-				const configText = extractConfig(segment);
-				const configMap = parseConfigMap(configText);
-				const rawConfig = configText.trim();
-				const row = {
-					id,
-					...nameMatch === null ? {} : { name: nameMatch[1].trim() },
-					kind: "insert",
-					config: configMap,
-					rawConfig,
-					line: Math.max(1, startLine)
-				};
-				rows.push(row);
-				recordIndex.set(id, (recordIndex.get(id) ?? 0) + 1);
 			}
 			const duplicates = [];
 			const lineById = /* @__PURE__ */ new Map();
@@ -1125,24 +1144,56 @@ window.__ModuleLoader__.load({
 				duplicates
 			};
 		}
-		function computeLineStarts(source) {
-			const starts = [0];
-			for (let i = 0; i < source.length; i += 1) if (source.charCodeAt(i) === 10) starts.push(i + 1);
-			return starts;
+		function computeLineOf(source, offset) {
+			let line = 1;
+			for (let i = 0; i < offset && i < source.length; i += 1) if (source.charCodeAt(i) === 10) line += 1;
+			return line;
+		}
+		/**
+		* Split one insert block on every `- id:` boundary so each returned
+		* segment is one row. The walker counts braces while looking for the
+		* boundary, so a config block with nested `{`/`}` does not produce a
+		* spurious split.
+		*/
+		function splitRows(block) {
+			const segments = [];
+			let depth = 0;
+			let start = 0;
+			for (let i = 0; i < block.length; i += 1) {
+				const ch = block.charAt(i);
+				if (ch === "{") depth += 1;
+				else if (ch === "}") depth = Math.max(0, depth - 1);
+				else if (depth === 0 && block.startsWith("- id:", i)) {
+					if (i > start) segments.push(block.slice(start, i));
+					start = i;
+				}
+			}
+			if (start < block.length) segments.push(block.slice(start));
+			return segments;
 		}
 		/**
 		* Pull the `config:` block out of one insert segment. The walker matches
 		* the loader's `config:` keyword, finds the matching `{`, and reads until
 		* the matching `}` (counting braces so nested values survive).
 		*/
+		/**
+		* Pull the `config:` block out of one insert segment. Two layouts ship in
+		* the wild: a flat `{ ... }` JSON-ish form and a flat-key form written
+		* under the `config:` keyword. The walker accepts both: brace-balanced
+		* blocks return the inner text; flat-key blocks return the lines that
+		* follow `config:` until the next sibling key (or the next `- id:`
+		* boundary detected by the caller) takes over.
+		*/
 		function extractConfig(segment) {
-			const match = segment.match(/\n\s*config:\s*([\s\S]*)$/);
+			const match = segment.match(/\n\s*config:\s*([\s\S]*)/);
 			if (match === null) return "";
+			const body = match[1] ?? "";
+			if (!body.includes("{")) return body;
 			let depth = 0;
 			let end = 0;
 			let started = false;
-			for (let i = 0; i < match[1].length; i += 1) {
-				const ch = match[1].charAt(i);
+			for (let i = 0; i < body.length; i += 1) {
+				const ch = body.charAt(i);
 				if (ch === "{") {
 					depth += 1;
 					started = true;
@@ -1155,7 +1206,7 @@ window.__ModuleLoader__.load({
 				}
 			}
 			if (!started) return "";
-			return match[1].slice(0, end);
+			return body.slice(0, end);
 		}
 		/**
 		* Parse the inner config block into a flat string map. The walker is
@@ -1210,8 +1261,10 @@ window.__ModuleLoader__.load({
 		];
 		const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 		function safeStorage() {
-			if (typeof window === "undefined" || typeof window.localStorage === "undefined") return void 0;
-			return window.localStorage;
+			const g = typeof globalThis !== "undefined" ? globalThis : void 0;
+			const store = g?.window?.localStorage ?? g?.localStorage;
+			if (store === void 0) return void 0;
+			return store;
 		}
 		function isValidIsoDate(value) {
 			return typeof value === "string" && ISO_DATE.test(value);
@@ -1317,7 +1370,8 @@ window.__ModuleLoader__.load({
 			return updated;
 		}
 		function setDueDate(tasks, id, dueDate) {
-			const updated = tasks.map((task) => task.id === id ? dueDate === void 0 ? (() => {
+			const cleared = dueDate === void 0 || dueDate === "";
+			const updated = tasks.map((task) => task.id === id ? cleared ? (() => {
 				const { dueDate: _drop, ...rest } = task;
 				return rest;
 			})() : {
