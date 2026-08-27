@@ -3,7 +3,7 @@ import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type { Disposer, ReactElementLike, SettingsScope } from '../../core/dsh-adapter/index.ts'
 import { DEFAULT_ENABLED, MODULE_NAMES, normalizeEnabled, type EnabledModules, type IceConfig, type ModuleName } from '../../core/dispatch/index.ts'
 import { runDoctor, type DoctorRun } from '../doctor/client.ts'
-import { KNOWN_SKILLS, type SkillEntry } from '../skill-explorer/client.ts'
+import { KNOWN_SKILLS, mirrorToEntries, readSkillsMirror, type SkillEntry } from '../skill-explorer/client.ts'
 import { copyToClipboard, cancelSession, createSession, filterSessions, joinSessionIds, listSessions, renameSession, type SessionSummary } from '../session-id/client.ts'
 import { isLaunchableUrl, loadHistory, openOrCopyUrl, QUICK_PRESETS, recordHistory, removeHistory, type UrlScheme } from '../desktop-launcher/client.ts'
 import { parseCordisPatch } from '../plugin-manager/client.ts'
@@ -324,7 +324,7 @@ function IceToolsSection(props: IceToolsSectionProps): ReactElement {
     rows,
     blockFor('doctor', createElement(DoctorBlock, { key: 'doctor', dict, ctx })),
     blockFor('sessionId', createElement(SessionIdBlock, { key: 'session-id', dict, ctx })),
-    blockFor('skillExplorer', createElement(SkillExplorerBlock, { key: 'skill-explorer', dict })),
+    blockFor('skillExplorer', createElement(SkillExplorerBlock, { key: 'skill-explorer', dict, ctx })),
     blockFor('desktopLauncher', createElement(DesktopLauncherBlock, { key: 'desktop-launcher', dict, ctx })),
     blockFor('pluginManager', createElement(PluginManagerBlock, { key: 'plugin-manager', dict })),
     blockFor('gitGraph', createElement(GitGraphBlock, { key: 'git-graph', dict })),
@@ -765,23 +765,70 @@ function SessionIdBlock({ dict, ctx }: { readonly dict: typeof zh; readonly ctx:
   )
 }
 
-function SkillExplorerBlock({ dict }: { readonly dict: typeof zh }): ReactElement {
+function SkillExplorerBlock({ dict, ctx }: { readonly dict: typeof zh; readonly ctx: ClientContext | undefined }): ReactElement {
   const sdict = dict.skillExplorer
+  // Inline the mirror scope shape so the component does not depend on the
+  // wider `SettingsScopeLike` boundary type. The settingsScope service is
+  // registered by dsh-client-ui-settings on the client runtime.
+  const skillScope = (ctx as unknown as { settingsScope: { bind<T>(spec: { namespace: string; decode(s: unknown): T | undefined }): { getSnapshot(): { value: T | undefined }; subscribe(listener: () => void): () => void } } }).settingsScope
+  const bound = skillScope.bind({
+    namespace: 'ice-tools-skills',
+    decode: (section: unknown) => {
+      if (typeof section !== 'object' || section === null) return undefined
+      const candidate = section as { entries?: unknown; generatedAt?: unknown }
+      if (!Array.isArray(candidate.entries)) return undefined
+      const entries: { name: string; description: string }[] = []
+      for (const item of candidate.entries) {
+        if (typeof item !== 'object' || item === null) continue
+        const entry = item as { name?: unknown; description?: unknown }
+        if (typeof entry.name !== 'string' || typeof entry.description !== 'string') continue
+        entries.push({ name: entry.name, description: entry.description })
+      }
+      return {
+        entries,
+        generatedAt: typeof candidate.generatedAt === 'number' ? candidate.generatedAt : Date.now(),
+      }
+    },
+  })
+  const [mirror, setMirror] = useState(() => readSkillsMirror(bound))
+  useEffect(() => {
+    const off = bound.subscribe(() => setMirror(readSkillsMirror(bound)))
+    return () => off()
+  }, [bound])
+  // Fall back to the static catalogue when the host has not (yet) populated
+  // the mirror; the explorer still shows something on hosts that pre-date
+  // the skills namespace.
+  const entries = mirror !== undefined && mirror.entries.length > 0
+    ? mirrorToEntries(mirror)
+    : KNOWN_SKILLS
   return createElement('div', {
     key: 'skill-explorer',
     style: { display: 'flex', flexDirection: 'column', gap: '8px', padding: '8px 0' },
     'data-dsh-plugin': 'ice-tools',
     'data-dsh-part': 'skill-explorer',
   },
-    createElement('span', { style: { fontWeight: 600 } }, sdict.title),
-    KNOWN_SKILLS.length === 0
+    createElement('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } },
+      createElement('span', { style: { fontWeight: 600 } }, sdict.title),
+      mirror !== undefined && mirror.entries.length > 0
+        ? createElement('span', {
+          style: { ...noteStyle, fontSize: '11px' },
+          'data-dsh-plugin': 'ice-tools',
+          'data-dsh-part': 'skill-source',
+        }, sdict.liveMirror)
+        : createElement('span', {
+          style: { ...noteStyle, fontSize: '11px' },
+          'data-dsh-plugin': 'ice-tools',
+          'data-dsh-part': 'skill-source',
+        }, sdict.staticFallback),
+    ),
+    entries.length === 0
       ? createElement('span', { style: noteStyle }, sdict.empty)
       : createElement('div', {
         style: { display: 'flex', flexDirection: 'column', gap: '4px' },
         'data-dsh-plugin': 'ice-tools',
         'data-dsh-part': 'skill-list',
       },
-        KNOWN_SKILLS.map((entry: SkillEntry) =>
+        entries.map((entry: SkillEntry) =>
           createElement('div', {
             key: entry.name,
             style: {

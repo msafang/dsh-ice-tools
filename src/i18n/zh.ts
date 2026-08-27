@@ -93,12 +93,16 @@ export interface SkillExplorerDictionary {
   readonly title: string
   readonly location: string
   readonly empty: string
+  readonly liveMirror: string
+  readonly staticFallback: string
 }
 
 export const skillExplorer: SkillExplorerDictionary = {
   title: '技能浏览器',
   location: '路径',
   empty: '没有技能。',
+  liveMirror: '实时目录',
+  staticFallback: '静态回退',
 }
 
 export interface DesktopLauncherDictionary {

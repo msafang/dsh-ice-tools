@@ -28,8 +28,11 @@ describe('dsh-ice-tools smoke contracts', () => {
     } as unknown as HostContext
 
     applySettingsHub(ctx)
-    expect(registered).toHaveLength(1)
+    // The host registers two namespaces: the toggle surface itself plus the
+    // read-only skills mirror that the Skill Explorer block reads.
+    expect(registered).toHaveLength(2)
     expect(registered[0].ns).toBe('ice-tools')
+    expect(registered[1].ns).toBe('ice-tools-skills')
     // The schema must be callable (the provider resolves by invoking it) and
     // normalize the enabled map.
     expect(registered[0].schema).toBeTypeOf('function')

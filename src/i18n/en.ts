@@ -143,6 +143,8 @@ export const en: {
     title: 'Skill Explorer',
     location: 'Path',
     empty: 'No skills.',
+    liveMirror: 'Live mirror',
+    staticFallback: 'Static fallback',
   },
   desktopLauncher: {
     title: 'Desktop Launcher',
