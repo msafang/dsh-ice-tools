@@ -41,8 +41,12 @@ export const TASK_TEMPLATES: readonly TaskTemplate[] = [
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
 function safeStorage(): Storage | undefined {
-  if (typeof window === 'undefined' || typeof window.localStorage === 'undefined') return undefined
-  return window.localStorage
+  const g = (typeof globalThis !== 'undefined' ? globalThis : undefined) as
+    | { localStorage?: Storage; window?: { localStorage?: Storage } }
+    | undefined
+  const store = g?.window?.localStorage ?? g?.localStorage
+  if (store === undefined) return undefined
+  return store
 }
 
 export function isValidIsoDate(value: unknown): value is string {
@@ -181,8 +185,11 @@ export function setPriority(tasks: readonly Task[], id: string, priority: Priori
 }
 
 export function setDueDate(tasks: readonly Task[], id: string, dueDate: string | undefined): readonly Task[] {
+  // An empty string from a cleared date input is treated like undefined;
+  // callers that want to set an explicit value pass a non-empty ISO date.
+  const cleared = dueDate === undefined || dueDate === ''
   const updated = tasks.map((task) => task.id === id
-    ? (dueDate === undefined ? (() => { const { dueDate: _drop, ...rest } = task; void _drop; return rest })() : { ...task, dueDate })
+    ? (cleared ? (() => { const { dueDate: _drop, ...rest } = task; void _drop; return rest })() : { ...task, dueDate: dueDate as string })
     : task)
   persist(updated)
   return updated

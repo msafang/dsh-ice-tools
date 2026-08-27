@@ -46,36 +46,57 @@ export function parseCordisPatch(source: string): ParsedPatch {
   const rows: PluginRow[] = []
   const unrecognized: string[] = []
   // Track the first occurrence line for the new-line index the UI shows.
-  const lineStarts = computeLineStarts(source)
   const recordIndex: Map<string, number> = new Map()
 
-  const insertBlocks = source.split(/\n-?\s*insert:\s*/).slice(1)
-  for (const block of insertBlocks) {
-    const segment = block.split(/\n-?\s*(?:-?\s*insert:|[a-z]+:)/)[0] ?? block
-    const idMatch = segment.match(/^\s*-\s*id:\s*([^\s#]+)/)
-    if (idMatch === null) {
-      const firstLine = segment.split('\n')[0]?.trim() ?? ''
-      if (firstLine.length > 0) unrecognized.push(firstLine)
-      continue
+  // Find every `insert:` keyword, in order. Each one starts a new block; the
+  // segment between two keywords (or the head / tail) is the body of one
+  // insert list. Track the absolute offset of every keyword so we can
+  // report each row's source line.
+  const keywordOffsets: number[] = []
+  const keywordPattern = /\n?\s*-?\s*insert:\s*/g
+  let match: RegExpExecArray | null
+  while ((match = keywordPattern.exec(source)) !== null) {
+    keywordOffsets.push(match.index)
+  }
+
+  for (let i = 0; i < keywordOffsets.length; i += 1) {
+    const keywordOffset = keywordOffsets[i]!
+    // Find the end of the `insert:` keyword itself so the row bodies start
+    // on the next non-whitespace character.
+    const headerMatch = source.slice(keywordOffset).match(/^[\s\S]*?-?\s*insert:\s*/)
+    const blockStartOffset = keywordOffset + (headerMatch?.[0].length ?? 0)
+    const endOffset = i + 1 < keywordOffsets.length ? keywordOffsets[i + 1]! : source.length
+    const block = source.slice(blockStartOffset, endOffset)
+    // Each insert list contains one or more rows that start with `- id:`. The
+    // first row's body is everything from the id line up to the next
+    // `- id:` line; subsequent rows repeat the same pattern.
+    const rowSegments = splitRows(block)
+    let rowCursorOffset = blockStartOffset
+    for (const segment of rowSegments) {
+      const idMatch = segment.match(/\n?\s*-\s*id:\s*([^\s#]+)/)
+      if (idMatch === null) {
+        const firstLine = segment.split('\n')[0]?.trim() ?? ''
+        if (firstLine.length > 0) unrecognized.push(firstLine)
+        continue
+      }
+      const id = idMatch[1]!
+      const startLine = computeLineOf(source, rowCursorOffset)
+      const nameMatch = segment.match(/\n\s*name:\s*['"]?([^'"\n#]+)['"]?/)
+      const configText = extractConfig(segment)
+      const configMap = parseConfigMap(configText)
+      const rawConfig = configText.trim()
+      const row: PluginRow = {
+        id,
+        ...(nameMatch === null ? {} : { name: nameMatch[1]!.trim() }),
+        kind: 'insert',
+        config: configMap,
+        rawConfig,
+        line: startLine,
+      }
+      rows.push(row)
+      recordIndex.set(id, (recordIndex.get(id) ?? 0) + 1)
+      rowCursorOffset += segment.length
     }
-    const id = idMatch[1]
-    const startLine = lineStarts.length === 0
-      ? 0
-      : lineStarts.findIndex((offset) => offset > (source.length - block.length)) + 1
-    const nameMatch = segment.match(/\n\s*name:\s*([^\n#]+)/)
-    const configText = extractConfig(segment)
-    const configMap = parseConfigMap(configText)
-    const rawConfig = configText.trim()
-    const row: PluginRow = {
-      id,
-      ...(nameMatch === null ? {} : { name: nameMatch[1].trim() }),
-      kind: 'insert',
-      config: configMap,
-      rawConfig,
-      line: Math.max(1, startLine),
-    }
-    rows.push(row)
-    recordIndex.set(id, (recordIndex.get(id) ?? 0) + 1)
   }
 
   const duplicates: DuplicateRow[] = []
@@ -93,12 +114,35 @@ export function parseCordisPatch(source: string): ParsedPatch {
   return { rows, unrecognized, duplicates }
 }
 
-function computeLineStarts(source: string): number[] {
-  const starts: number[] = [0]
-  for (let i = 0; i < source.length; i += 1) {
-    if (source.charCodeAt(i) === 10) starts.push(i + 1)
+function computeLineOf(source: string, offset: number): number {
+  let line = 1
+  for (let i = 0; i < offset && i < source.length; i += 1) {
+    if (source.charCodeAt(i) === 10) line += 1
   }
-  return starts
+  return line
+}
+
+/**
+ * Split one insert block on every `- id:` boundary so each returned
+ * segment is one row. The walker counts braces while looking for the
+ * boundary, so a config block with nested `{`/`}` does not produce a
+ * spurious split.
+ */
+function splitRows(block: string): string[] {
+  const segments: string[] = []
+  let depth = 0
+  let start = 0
+  for (let i = 0; i < block.length; i += 1) {
+    const ch = block.charAt(i)
+    if (ch === '{') depth += 1
+    else if (ch === '}') depth = Math.max(0, depth - 1)
+    else if (depth === 0 && block.startsWith('- id:', i)) {
+      if (i > start) segments.push(block.slice(start, i))
+      start = i
+    }
+  }
+  if (start < block.length) segments.push(block.slice(start))
+  return segments
 }
 
 /**
@@ -106,14 +150,24 @@ function computeLineStarts(source: string): number[] {
  * the loader's `config:` keyword, finds the matching `{`, and reads until
  * the matching `}` (counting braces so nested values survive).
  */
+/**
+ * Pull the `config:` block out of one insert segment. Two layouts ship in
+ * the wild: a flat `{ ... }` JSON-ish form and a flat-key form written
+ * under the `config:` keyword. The walker accepts both: brace-balanced
+ * blocks return the inner text; flat-key blocks return the lines that
+ * follow `config:` until the next sibling key (or the next `- id:`
+ * boundary detected by the caller) takes over.
+ */
 function extractConfig(segment: string): string {
-  const match = segment.match(/\n\s*config:\s*([\s\S]*)$/)
+  const match = segment.match(/\n\s*config:\s*([\s\S]*)/)
   if (match === null) return ''
+  const body = match[1] ?? ''
+  if (!body.includes('{')) return body
   let depth = 0
   let end = 0
   let started = false
-  for (let i = 0; i < match[1]!.length; i += 1) {
-    const ch = match[1]!.charAt(i)
+  for (let i = 0; i < body.length; i += 1) {
+    const ch = body.charAt(i)
     if (ch === '{') {
       depth += 1
       started = true
@@ -126,7 +180,7 @@ function extractConfig(segment: string): string {
     }
   }
   if (!started) return ''
-  return match[1]!.slice(0, end)
+  return body.slice(0, end)
 }
 
 /**

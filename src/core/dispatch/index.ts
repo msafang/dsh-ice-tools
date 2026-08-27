@@ -47,7 +47,21 @@ export const DEFAULT_ENABLED: EnabledModules = {
 }
 
 export function normalizeEnabled(value: Partial<Record<ModuleName, unknown>> | undefined): EnabledModules {
-  const normalized = { ...DEFAULT_ENABLED }
+  // Start from a strict off-by-default view, then opt booleans back in. The
+  // "all off, then opt in" shape means an explicit non-boolean input (null,
+  // 'yes', 1, the string from a confused caller) does not leave the
+  // default-on entries leaking past validation.
+  const normalized: EnabledModules = {
+    settingsHub: false,
+    pluginManager: false,
+    chatRecovery: false,
+    desktopLauncher: false,
+    doctor: false,
+    sessionId: false,
+    skillExplorer: false,
+    gitGraph: false,
+    taskBoard: false,
+  }
   for (const name of MODULE_NAMES) {
     if (typeof value?.[name] === 'boolean') normalized[name] = value[name] as boolean
   }
