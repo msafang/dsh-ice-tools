@@ -224,7 +224,10 @@ window.__ModuleLoader__.load({
 				toggleGuidance: "Toggle a row above to enable its block below; untoggle to hide it.",
 				resetButton: "Reset to defaults",
 				resetConfirm: "Reset will clear your current toggle overrides. Continue?",
-				resetDone: "Reset complete."
+				resetDone: "Reset complete.",
+				searchPlaceholder: "Search…",
+				expand: "Expand",
+				collapse: "Collapse"
 			}
 		};
 		const zh = {
@@ -445,7 +448,10 @@ window.__ModuleLoader__.load({
 				toggleGuidance: "勾选上面的选项即可启用对应工具；取消勾选则隐藏。",
 				resetButton: "重置为默认",
 				resetConfirm: "重置后将清除当前所有自定义 toggle 设置，确定吗？",
-				resetDone: "已重置。"
+				resetDone: "已重置。",
+				searchPlaceholder: "搜索…",
+				expand: "展开",
+				collapse: "收起"
 			}
 		};
 		//#endregion
@@ -1797,6 +1803,14 @@ window.__ModuleLoader__.load({
 			const [settings, setSettings] = (0, react.useState)(() => scope.getSnapshot());
 			const [localeSnapshot, setLocaleSnapshot] = (0, react.useState)(() => locale.getSnapshot());
 			const [resetFlash, setResetFlash] = (0, react.useState)(false);
+			const [query, setQuery] = (0, react.useState)("");
+			const [collapsed, setCollapsed] = (0, react.useState)(() => ({}));
+			const toggleCollapsed = (id) => {
+				setCollapsed((current) => ({
+					...current,
+					[id]: !(current[id] === true)
+				}));
+			};
 			(0, react.useEffect)(() => {
 				const offSettings = scope.subscribe(() => setSettings(scope.getSnapshot()));
 				const offLocale = locale.subscribe(() => setLocaleSnapshot(locale.getSnapshot()));
@@ -1826,18 +1840,31 @@ window.__ModuleLoader__.load({
 				setResetFlash(true);
 				if (typeof window !== "undefined") window.setTimeout(() => setResetFlash(false), 1500);
 			};
-			const rows = MODULE_NAMES.map((id) => (0, react.createElement)("label", {
-				key: id,
-				style: rowStyle,
-				"data-dsh-plugin": "ice-tools",
-				"data-dsh-part": "settings-row",
-				"data-module": id
-			}, (0, react.createElement)("input", {
-				type: "checkbox",
-				checked: enabled[id],
-				disabled: id === "settingsHub" || !writable,
-				onChange: (event) => toggle(id, event.target.checked)
-			}), (0, react.createElement)("span", { style: labelStyle }, dict.modules[id].label), (0, react.createElement)("span", { style: descStyle }, dict.modules[id].description)));
+			const queryLower = query.trim().toLowerCase();
+			const matching = (id) => {
+				if (queryLower.length === 0) return true;
+				const entry = dict.modules[id];
+				return `${entry.label} ${entry.description}`.toLowerCase().includes(queryLower);
+			};
+			const rows = MODULE_NAMES.map((id) => {
+				const matches = matching(id);
+				return (0, react.createElement)("label", {
+					key: id,
+					style: {
+						...rowStyle,
+						opacity: matches ? 1 : .4
+					},
+					"data-dsh-plugin": "ice-tools",
+					"data-dsh-part": "settings-row",
+					"data-module": id,
+					"data-dsh-matches": matches ? "true" : "false"
+				}, (0, react.createElement)("input", {
+					type: "checkbox",
+					checked: enabled[id],
+					disabled: id === "settingsHub" || !writable,
+					onChange: (event) => toggle(id, event.target.checked)
+				}), (0, react.createElement)("span", { style: labelStyle }, dict.modules[id].label), (0, react.createElement)("span", { style: descStyle }, dict.modules[id].description));
+			});
 			const headerRow = (0, react.createElement)("div", {
 				key: "header",
 				style: {
@@ -1852,7 +1879,21 @@ window.__ModuleLoader__.load({
 			}, (0, react.createElement)("span", { style: {
 				...noteStyle,
 				flex: 1
-			} }, dict.pageHints.toggleGuidance), resetFlash ? (0, react.createElement)("span", { style: {
+			} }, dict.pageHints.toggleGuidance), (0, react.createElement)("input", {
+				type: "search",
+				value: query,
+				placeholder: dict.pageHints.searchPlaceholder,
+				style: {
+					...inputStyle,
+					width: "180px",
+					padding: "2px 8px",
+					fontSize: "12px"
+				},
+				onChange: (e) => setQuery(e.target.value),
+				"aria-label": dict.pageHints.searchPlaceholder,
+				"data-dsh-plugin": "ice-tools",
+				"data-dsh-part": "settings-search"
+			}), resetFlash ? (0, react.createElement)("span", { style: {
 				...noteStyle,
 				color: "var(--dsw-alias-success, #0a7d2c)"
 			} }, dict.pageHints.resetDone) : null, (0, react.createElement)("button", {
@@ -1867,7 +1908,31 @@ window.__ModuleLoader__.load({
 				"data-dsh-plugin": "ice-tools",
 				"data-dsh-part": "settings-reset"
 			}, dict.pageHints.resetButton));
-			const blockFor = (id, element) => enabled[id] ? element : null;
+			const blockFor = (id, element) => {
+				if (!enabled[id]) return null;
+				const isCollapsed = collapsed[id] === true;
+				return (0, react.createElement)("div", {
+					key: id,
+					"data-dsh-plugin": "ice-tools",
+					"data-dsh-part": "block-wrapper",
+					"data-dsh-collapsed": isCollapsed ? "true" : "false",
+					style: {
+						display: "flex",
+						flexDirection: "column"
+					}
+				}, (0, react.createElement)("button", {
+					type: "button",
+					style: {
+						...buttonStyle,
+						padding: "2px 8px",
+						fontSize: "11px",
+						alignSelf: "flex-start",
+						marginBottom: "4px"
+					},
+					onClick: () => toggleCollapsed(id),
+					"aria-label": isCollapsed ? dict.pageHints.expand : dict.pageHints.collapse
+				}, isCollapsed ? "+" : "−"), isCollapsed ? null : element);
+			};
 			return (0, react.createElement)("section", {
 				"data-dsh-plugin": "ice-tools",
 				style: sectionStyle
