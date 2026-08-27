@@ -9,7 +9,7 @@ import { isLaunchableUrl, loadHistory, openOrCopyUrl, QUICK_PRESETS, recordHisto
 import { parseCordisPatch } from '../plugin-manager/client.ts'
 import { parseGitGraphOutput, summarizeGraph } from '../git-graph/client.ts'
 import { addTask, exportJson, exportMarkdown, filterTasks, isBlocked, isOverdue, isoOffsetDays, loadTasks, moveTask, removeTask, setDueDate, sortTasks, TASK_TEMPLATES, toggleTask, type StatusFilter, type Task, type TaskTemplate, type Priority } from '../task-board/client.ts'
-import { readChatRecoveryState } from '../chat-recovery/client.ts'
+import { addFailedSession, clearFailedSessions, exportRecoveryJson, importRecoveryJson, loadFailedSessions, markFailedSession, removeFailedSession, sortFailedSessions, type FailedSession } from '../chat-recovery/client.ts'
 import { en } from '../../i18n/en.ts'
 import { zh } from '../../i18n/zh.ts'
 
@@ -1416,17 +1416,189 @@ function downloadExport(tasks: readonly Task[], format: 'json' | 'markdown'): vo
 
 function ChatRecoveryBlock({ dict }: { readonly dict: typeof zh }): ReactElement {
   const sdict = dict.chatRecovery
-  const state = readChatRecoveryState()
+  const [entries, setEntries] = useState<readonly FailedSession[]>(() => loadFailedSessions())
+  const [newId, setNewId] = useState('')
+  const [newDesc, setNewDesc] = useState('')
+  const [flash, setFlash] = useState<string | undefined>(undefined)
+  const sorted = sortFailedSessions(entries)
+  const onAdd = (): void => {
+    setEntries(addFailedSession(entries, newId, newDesc))
+    setNewId('')
+    setNewDesc('')
+    setFlash(sdict.added)
+    if (typeof window !== 'undefined') {
+      window.setTimeout(() => setFlash(undefined), 1500)
+    }
+  }
+  const onStatus = (id: string, status: FailedSession['status']): void => {
+    setEntries(markFailedSession(entries, id, status))
+  }
+  const onRemove = (id: string): void => {
+    setEntries(removeFailedSession(entries, id))
+  }
+  const onCopy = (id: string): void => {
+    void copyToClipboard(id).then(() => {
+      setFlash(sdict.copied)
+      if (typeof window !== 'undefined') {
+        window.setTimeout(() => setFlash(undefined), 1500)
+      }
+    })
+  }
+  const onClear = (): void => {
+    setEntries(clearFailedSessions())
+    setFlash(sdict.cleared)
+    if (typeof window !== 'undefined') {
+      window.setTimeout(() => setFlash(undefined), 1500)
+    }
+  }
+  const onExport = (): void => {
+    const json = exportRecoveryJson(entries)
+    if (typeof window === 'undefined') return
+    const blob = new Blob([json], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = 'dsh-ice-tools-recovery.json'
+    document.body.appendChild(anchor)
+    anchor.click()
+    document.body.removeChild(anchor)
+    URL.revokeObjectURL(url)
+  }
+  const onImport = (raw: string): void => {
+    const imported = importRecoveryJson(raw)
+    if (typeof imported === 'string') {
+      setFlash(imported)
+    } else {
+      setEntries(imported)
+      setFlash(sdict.imported)
+    }
+    if (typeof window !== 'undefined') {
+      window.setTimeout(() => setFlash(undefined), 2000)
+    }
+  }
   return createElement('div', {
     key: 'chat-recovery',
     style: { display: 'flex', flexDirection: 'column', gap: '8px', padding: '8px 0' },
     'data-dsh-plugin': 'ice-tools',
     'data-dsh-part': 'chat-recovery',
   },
-    createElement('span', { style: { fontWeight: 600 } }, sdict.title),
-    createElement('span', { style: noteStyle }, state.status === 'requires-host' ? sdict.note : ''),
+    createElement('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } },
+      createElement('span', { style: { fontWeight: 600 } }, sdict.title),
+      createElement('button', {
+        type: 'button',
+        style: { ...buttonStyle, padding: '2px 8px', fontSize: '11px' },
+        onClick: onClear,
+        disabled: entries.length === 0,
+        'data-dsh-plugin': 'ice-tools',
+        'data-dsh-part': 'recovery-clear',
+      }, sdict.clearAll),
+      createElement('button', {
+        type: 'button',
+        style: { ...buttonStyle, padding: '2px 8px', fontSize: '11px' },
+        onClick: onExport,
+        disabled: entries.length === 0,
+        'data-dsh-plugin': 'ice-tools',
+        'data-dsh-part': 'recovery-export',
+      }, sdict.exportJson),
+    ),
+    createElement('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
+      createElement('input', {
+        type: 'text',
+        value: newId,
+        placeholder: sdict.idPlaceholder,
+        style: { ...inputStyle, flex: 1, minWidth: '120px' },
+        onChange: (e: { target: { value: string } }) => setNewId(e.target.value),
+        'aria-label': sdict.idLabel,
+        'data-dsh-plugin': 'ice-tools',
+        'data-dsh-part': 'recovery-id',
+      }),
+      createElement('input', {
+        type: 'text',
+        value: newDesc,
+        placeholder: sdict.descriptionPlaceholder,
+        style: { ...inputStyle, flex: 2, minWidth: '200px' },
+        onChange: (e: { target: { value: string } }) => setNewDesc(e.target.value),
+        'aria-label': sdict.descriptionLabel,
+        'data-dsh-plugin': 'ice-tools',
+        'data-dsh-part': 'recovery-description',
+      }),
+      createElement('button', {
+        type: 'button',
+        style: buttonStyle,
+        onClick: onAdd,
+        disabled: newId.trim().length === 0 || newDesc.trim().length === 0,
+        'data-dsh-plugin': 'ice-tools',
+        'data-dsh-part': 'recovery-add',
+      }, sdict.add),
+    ),
+    sorted.length === 0
+      ? createElement('span', { style: noteStyle }, sdict.empty)
+      : createElement('div', {
+        style: { display: 'flex', flexDirection: 'column', gap: '4px' },
+        'data-dsh-plugin': 'ice-tools',
+        'data-dsh-part': 'recovery-list',
+      },
+        sorted.map((entry) =>
+          createElement('div', {
+            key: entry.id,
+            style: {
+              display: 'grid',
+              gridTemplateColumns: 'auto 1fr auto auto auto',
+              gap: '8px',
+              alignItems: 'center',
+              padding: '6px 10px',
+              borderRadius: '6px',
+              background: entry.status === 'open' ? 'rgba(180, 35, 24, 0.08)' : 'var(--dsw-alias-bg-row, rgba(127,127,127,0.05))',
+            },
+            'data-dsh-recovery-id': entry.id,
+            'data-dsh-recovery-status': entry.status,
+          },
+            createElement('span', {
+              style: {
+                fontSize: '11px',
+                fontWeight: 600,
+                padding: '2px 6px',
+                borderRadius: '4px',
+                color: entry.status === 'open' ? 'var(--dsw-alias-danger, #b42318)'
+                  : entry.status === 'recovered' ? 'var(--dsw-alias-success, #0a7d2c)'
+                  : 'var(--dsw-alias-label-secondary, #666)',
+                background: entry.status === 'open' ? 'rgba(180, 35, 24, 0.15)'
+                  : entry.status === 'recovered' ? 'rgba(10, 125, 44, 0.15)'
+                  : 'rgba(127,127,127,0.15)',
+              },
+            }, entry.status === 'open' ? sdict.openStatus : entry.status === 'recovered' ? sdict.recoveredStatus : sdict.dismissedStatus),
+            createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '2px' } },
+              createElement('code', { style: { fontSize: '12px', fontFamily: 'var(--dsw-alias-font-mono, ui-monospace, monospace)' } }, entry.id),
+              createElement('span', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-secondary, #666)' } }, entry.description),
+            ),
+            createElement('button', {
+              type: 'button',
+              style: { ...buttonStyle, padding: '2px 6px', fontSize: '11px' },
+              onClick: () => onCopy(entry.id),
+            }, sdict.copy),
+            createElement('button', {
+              type: 'button',
+              style: { ...buttonStyle, padding: '2px 6px', fontSize: '11px' },
+              onClick: () => onStatus(entry.id, entry.status === 'open' ? 'recovered' : entry.status === 'recovered' ? 'dismissed' : 'open'),
+            }, entry.status === 'open' ? sdict.markRecovered : entry.status === 'recovered' ? sdict.markDismissed : sdict.markOpen),
+            createElement('button', {
+              type: 'button',
+              style: { ...buttonStyle, padding: '2px 6px', fontSize: '11px' },
+              onClick: () => onRemove(entry.id),
+            }, sdict.remove),
+          ),
+        ),
+      ),
+    flash
+      ? createElement('span', { style: { ...noteStyle, color: 'var(--dsw-alias-success, #0a7d2c)' } }, flash)
+      : null,
   )
 }
+
+function statusToLabel(status: FailedSession['status'], sdict: typeof zh.chatRecovery): string {
+  return status === 'open' ? sdict.openStatus : status === 'recovered' ? sdict.recoveredStatus : sdict.dismissedStatus
+}
+void statusToLabel
 
 const PATCH_PATH = '~/.dsh/profiles/web/cordis.patch.yml'
 

@@ -220,11 +220,53 @@ export const taskBoard: TaskBoardDictionary = {
 export interface ChatRecoveryDictionary {
   readonly title: string
   readonly note: string
+  readonly idPlaceholder: string
+  readonly descriptionPlaceholder: string
+  readonly idLabel: string
+  readonly descriptionLabel: string
+  readonly add: string
+  readonly added: string
+  readonly remove: string
+  readonly copy: string
+  readonly copied: string
+  readonly cleared: string
+  readonly clearAll: string
+  readonly exportJson: string
+  readonly imported: string
+  readonly importInvalid: string
+  readonly empty: string
+  readonly openStatus: string
+  readonly recoveredStatus: string
+  readonly dismissedStatus: string
+  readonly markRecovered: string
+  readonly markDismissed: string
+  readonly markOpen: string
 }
 
 export const chatRecovery: ChatRecoveryDictionary = {
   title: '对话恢复',
-  note: '需要 Host 提供失败会话事件流才能列出可恢复项。',
+  note: '手动报告失败的会话；恢复记录保存在本机 localStorage。',
+  idPlaceholder: 'session id',
+  descriptionPlaceholder: '失败描述…',
+  idLabel: '会话 id',
+  descriptionLabel: '失败描述',
+  add: '添加',
+  added: '已添加',
+  remove: '删除',
+  copy: '复制',
+  copied: '已复制',
+  cleared: '已清空',
+  clearAll: '清空',
+  exportJson: '导出 JSON',
+  imported: '已导入',
+  importInvalid: '导入失败：JSON 不合法',
+  empty: '暂无恢复记录。',
+  openStatus: '未解决',
+  recoveredStatus: '已恢复',
+  dismissedStatus: '已关闭',
+  markRecovered: '标记已恢复',
+  markDismissed: '标记已关闭',
+  markOpen: '标记未解决',
 }
 
 export const doctor: DoctorDictionary = {
