@@ -139,7 +139,9 @@ window.__ModuleLoader__.load({
 			skillExplorer: {
 				title: "Skill Explorer",
 				location: "Path",
-				empty: "No skills."
+				empty: "No skills.",
+				liveMirror: "Live mirror",
+				staticFallback: "Static fallback"
 			},
 			desktopLauncher: {
 				title: "Desktop Launcher",
@@ -331,7 +333,9 @@ window.__ModuleLoader__.load({
 			skillExplorer: {
 				title: "技能浏览器",
 				location: "路径",
-				empty: "没有技能。"
+				empty: "没有技能。",
+				liveMirror: "实时目录",
+				staticFallback: "静态回退"
 			},
 			desktopLauncher: {
 				title: "桌面启动器",
@@ -780,6 +784,7 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region src/modules/skill-explorer/client.ts
+		/** Fallback catalogue used when the host mirror is unavailable. */
 		const KNOWN_SKILLS = [
 			{
 				name: "agently-mail",
@@ -797,6 +802,26 @@ window.__ModuleLoader__.load({
 				location: "~/.dsh/skills/qiaomu-design"
 			}
 		];
+		/**
+		* Map a mirror entry to the shape the UI expects. The host supplies `name`
+		* and `description`; the location is a fixed convention the host follows
+		* when it populates the mirror.
+		*/
+		function mirrorToEntries(mirror, homeDir = "~/.dsh") {
+			return mirror.entries.map((entry) => ({
+				name: entry.name,
+				description: entry.description,
+				location: `${homeDir}/skills/${entry.name}`
+			}));
+		}
+		/**
+		* Read the skills mirror from a bound settings scope. The shape is loose
+		* because the namespace may not be registered when the host is older than
+		* the client, or when the runtime mounts without a settings provider.
+		*/
+		function readSkillsMirror(scope) {
+			return scope.getSnapshot().value;
+		}
 		//#endregion
 		//#region src/modules/session-id/client.ts
 		function isString(value) {
@@ -1655,7 +1680,8 @@ window.__ModuleLoader__.load({
 				ctx
 			})), blockFor("skillExplorer", (0, react.createElement)(SkillExplorerBlock, {
 				key: "skill-explorer",
-				dict
+				dict,
+				ctx
 			})), blockFor("desktopLauncher", (0, react.createElement)(DesktopLauncherBlock, {
 				key: "desktop-launcher",
 				dict,
@@ -2079,8 +2105,36 @@ window.__ModuleLoader__.load({
 				color: "var(--dsw-alias-success, #0a7d2c)"
 			} }, feedback) : null, list);
 		}
-		function SkillExplorerBlock({ dict }) {
+		function SkillExplorerBlock({ dict, ctx }) {
 			const sdict = dict.skillExplorer;
+			const bound = ctx.settingsScope.bind({
+				namespace: "ice-tools-skills",
+				decode: (section) => {
+					if (typeof section !== "object" || section === null) return void 0;
+					const candidate = section;
+					if (!Array.isArray(candidate.entries)) return void 0;
+					const entries = [];
+					for (const item of candidate.entries) {
+						if (typeof item !== "object" || item === null) continue;
+						const entry = item;
+						if (typeof entry.name !== "string" || typeof entry.description !== "string") continue;
+						entries.push({
+							name: entry.name,
+							description: entry.description
+						});
+					}
+					return {
+						entries,
+						generatedAt: typeof candidate.generatedAt === "number" ? candidate.generatedAt : Date.now()
+					};
+				}
+			});
+			const [mirror, setMirror] = (0, react.useState)(() => readSkillsMirror(bound));
+			(0, react.useEffect)(() => {
+				const off = bound.subscribe(() => setMirror(readSkillsMirror(bound)));
+				return () => off();
+			}, [bound]);
+			const entries = mirror !== void 0 && mirror.entries.length > 0 ? mirrorToEntries(mirror) : KNOWN_SKILLS;
 			return (0, react.createElement)("div", {
 				key: "skill-explorer",
 				style: {
@@ -2091,7 +2145,25 @@ window.__ModuleLoader__.load({
 				},
 				"data-dsh-plugin": "ice-tools",
 				"data-dsh-part": "skill-explorer"
-			}, (0, react.createElement)("span", { style: { fontWeight: 600 } }, sdict.title), KNOWN_SKILLS.length === 0 ? (0, react.createElement)("span", { style: noteStyle }, sdict.empty) : (0, react.createElement)("div", {
+			}, (0, react.createElement)("div", { style: {
+				display: "flex",
+				gap: "8px",
+				alignItems: "center"
+			} }, (0, react.createElement)("span", { style: { fontWeight: 600 } }, sdict.title), mirror !== void 0 && mirror.entries.length > 0 ? (0, react.createElement)("span", {
+				style: {
+					...noteStyle,
+					fontSize: "11px"
+				},
+				"data-dsh-plugin": "ice-tools",
+				"data-dsh-part": "skill-source"
+			}, sdict.liveMirror) : (0, react.createElement)("span", {
+				style: {
+					...noteStyle,
+					fontSize: "11px"
+				},
+				"data-dsh-plugin": "ice-tools",
+				"data-dsh-part": "skill-source"
+			}, sdict.staticFallback)), entries.length === 0 ? (0, react.createElement)("span", { style: noteStyle }, sdict.empty) : (0, react.createElement)("div", {
 				style: {
 					display: "flex",
 					flexDirection: "column",
@@ -2099,7 +2171,7 @@ window.__ModuleLoader__.load({
 				},
 				"data-dsh-plugin": "ice-tools",
 				"data-dsh-part": "skill-list"
-			}, KNOWN_SKILLS.map((entry) => (0, react.createElement)("div", {
+			}, entries.map((entry) => (0, react.createElement)("div", {
 				key: entry.name,
 				style: {
 					display: "flex",
