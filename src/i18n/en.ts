@@ -228,5 +228,8 @@ export const en: {
     resetButton: 'Reset to defaults',
     resetConfirm: 'Reset will clear your current toggle overrides. Continue?',
     resetDone: 'Reset complete.',
+    searchPlaceholder: 'Search…',
+    expand: 'Expand',
+    collapse: 'Collapse',
   },
 }

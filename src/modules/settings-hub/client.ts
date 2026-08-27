@@ -239,6 +239,11 @@ function IceToolsSection(props: IceToolsSectionProps): ReactElement {
   const [settings, setSettings] = useState(() => scope.getSnapshot())
   const [localeSnapshot, setLocaleSnapshot] = useState(() => locale.getSnapshot())
   const [resetFlash, setResetFlash] = useState(false)
+  const [query, setQuery] = useState('')
+  const [collapsed, setCollapsed] = useState(() => ({} as Record<ModuleName, boolean>))
+  const toggleCollapsed = (id: ModuleName): void => {
+    setCollapsed((current) => ({ ...current, [id]: !(current[id] === true) }))
+  }
   useEffect(() => {
     const offSettings = scope.subscribe(() => setSettings(scope.getSnapshot()))
     const offLocale = locale.subscribe(() => setLocaleSnapshot(locale.getSnapshot()))
@@ -273,13 +278,26 @@ function IceToolsSection(props: IceToolsSectionProps): ReactElement {
     }
   }
 
-  const rows = MODULE_NAMES.map((id) =>
-    createElement('label', {
+  // Filter toggle rows by the search query. A row stays visible when its
+  // label or description matches the query; the search narrows, never
+  // hides a row entirely (the user can always scroll past).
+  const queryLower = query.trim().toLowerCase()
+  const matching = (id: ModuleName): boolean => {
+    if (queryLower.length === 0) return true
+    const entry = dict.modules[id]
+    const text = `${entry.label} ${entry.description}`.toLowerCase()
+    return text.includes(queryLower)
+  }
+
+  const rows = MODULE_NAMES.map((id) => {
+    const matches = matching(id)
+    return createElement('label', {
       key: id,
-      style: rowStyle,
+      style: { ...rowStyle, opacity: matches ? 1 : 0.4 },
       'data-dsh-plugin': 'ice-tools',
       'data-dsh-part': 'settings-row',
       'data-module': id,
+      'data-dsh-matches': matches ? 'true' : 'false',
     },
       createElement('input', {
         type: 'checkbox',
@@ -289,8 +307,8 @@ function IceToolsSection(props: IceToolsSectionProps): ReactElement {
       }),
       createElement('span', { style: labelStyle }, dict.modules[id].label),
       createElement('span', { style: descStyle }, dict.modules[id].description),
-    ),
-  )
+    )
+  })
 
   const headerRow = createElement('div', {
     key: 'header',
@@ -299,6 +317,16 @@ function IceToolsSection(props: IceToolsSectionProps): ReactElement {
     'data-dsh-part': 'settings-header',
   },
     createElement('span', { style: { ...noteStyle, flex: 1 } }, dict.pageHints.toggleGuidance),
+    createElement('input', {
+      type: 'search',
+      value: query,
+      placeholder: dict.pageHints.searchPlaceholder,
+      style: { ...inputStyle, width: '180px', padding: '2px 8px', fontSize: '12px' },
+      onChange: (e: { target: { value: string } }) => setQuery(e.target.value),
+      'aria-label': dict.pageHints.searchPlaceholder,
+      'data-dsh-plugin': 'ice-tools',
+      'data-dsh-part': 'settings-search',
+    }),
     resetFlash
       ? createElement('span', { style: { ...noteStyle, color: 'var(--dsw-alias-success, #0a7d2c)' } }, dict.pageHints.resetDone)
       : null,
@@ -316,8 +344,31 @@ function IceToolsSection(props: IceToolsSectionProps): ReactElement {
   // itself is non-toggleable; the rest flip on a per-block basis. The
   // frozen-blocks (gitGraph, chatRecovery) keep their "requires host" note
   // intact while only rendering when the user opts in.
-  const blockFor = (id: ModuleName, element: ReactElement): ReactElement | null =>
-    enabled[id] ? element : null
+  const blockFor = (id: ModuleName, element: ReactElement): ReactElement | null => {
+    if (!enabled[id]) return null
+    const isCollapsed = collapsed[id] === true
+    return createElement('div', {
+      key: id,
+      'data-dsh-plugin': 'ice-tools',
+      'data-dsh-part': 'block-wrapper',
+      'data-dsh-collapsed': isCollapsed ? 'true' : 'false',
+      style: { display: 'flex', flexDirection: 'column' },
+    },
+      createElement('button', {
+        type: 'button',
+        style: {
+          ...buttonStyle,
+          padding: '2px 8px',
+          fontSize: '11px',
+          alignSelf: 'flex-start',
+          marginBottom: '4px',
+        },
+        onClick: () => toggleCollapsed(id),
+        'aria-label': isCollapsed ? dict.pageHints.expand : dict.pageHints.collapse,
+      }, isCollapsed ? '+' : '−'),
+      isCollapsed ? null : element,
+    )
+  }
 
   return createElement('section', { 'data-dsh-plugin': 'ice-tools', style: sectionStyle },
     headerRow,

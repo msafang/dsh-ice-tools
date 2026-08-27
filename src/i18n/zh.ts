@@ -342,6 +342,9 @@ export interface PageHintsDictionary {
   readonly resetButton: string
   readonly resetConfirm: string
   readonly resetDone: string
+  readonly searchPlaceholder: string
+  readonly expand: string
+  readonly collapse: string
 }
 
 export const pageHints: PageHintsDictionary = {
@@ -349,6 +352,9 @@ export const pageHints: PageHintsDictionary = {
   resetButton: '重置为默认',
   resetConfirm: '重置后将清除当前所有自定义 toggle 设置，确定吗？',
   resetDone: '已重置。',
+  searchPlaceholder: '搜索…',
+  expand: '展开',
+  collapse: '收起',
 }
 
 export const zh: {
