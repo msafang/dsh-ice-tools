@@ -51,7 +51,13 @@ export const en: {
   doctor: {
     title: 'Doctor',
     runButton: 'Run Doctor',
+    rerun: 'Rerun',
     running: 'Running…',
+    passed: 'passed',
+    failed: 'failed',
+    ms: 'ms',
+    lastRun: 'Last run',
+    historyTitle: 'History',
     pass: 'Pass',
     fail: 'Fail',
     checks: {

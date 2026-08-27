@@ -333,16 +333,93 @@ function IceToolsSection(props: IceToolsSectionProps): ReactElement {
   )
 }
 
+interface DoctorHistoryEntry {
+  readonly ranAt: number
+  readonly pass: number
+  readonly fail: number
+  readonly durationMs: number
+}
+
+const DOCTOR_HISTORY_KEY = 'dsh-ice-tools.doctor.history.v1'
+const DOCTOR_HISTORY_LIMIT = 5
+
+function safeDoctorStorage(): Storage | undefined {
+  const g = (typeof globalThis !== 'undefined' ? globalThis : undefined) as
+    | { localStorage?: Storage; window?: { localStorage?: Storage } }
+    | undefined
+  return g?.window?.localStorage ?? g?.localStorage
+}
+
+function loadDoctorHistory(): readonly DoctorHistoryEntry[] {
+  const store = safeDoctorStorage()
+  if (store === undefined) return []
+  const raw = store.getItem(DOCTOR_HISTORY_KEY)
+  if (raw === null) return []
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    const entries: DoctorHistoryEntry[] = []
+    for (const item of parsed) {
+      if (typeof item !== 'object' || item === null) continue
+      const candidate = item as Record<string, unknown>
+      if (typeof candidate.ranAt !== 'number') continue
+      if (typeof candidate.pass !== 'number') continue
+      if (typeof candidate.fail !== 'number') continue
+      if (typeof candidate.durationMs !== 'number') continue
+      entries.push({
+        ranAt: candidate.ranAt,
+        pass: candidate.pass,
+        fail: candidate.fail,
+        durationMs: candidate.durationMs,
+      })
+    }
+    return entries
+  } catch {
+    return []
+  }
+}
+
+function persistDoctorHistory(entries: readonly DoctorHistoryEntry[]): void {
+  const store = safeDoctorStorage()
+  if (store === undefined) return
+  try {
+    store.setItem(DOCTOR_HISTORY_KEY, JSON.stringify(entries))
+  } catch {
+    // localStorage may be disabled (private browsing) or quota-exceeded;
+    // the in-memory history still works for this session.
+  }
+}
+
+function summarize(run: DoctorRun, durationMs: number): DoctorHistoryEntry {
+  let pass = 0
+  let fail = 0
+  for (const result of run.results) {
+    if (result.pass) pass += 1
+    else fail += 1
+  }
+  return { ranAt: run.ranAt, pass, fail, durationMs }
+}
+
 function DoctorBlock({ dict, ctx }: { readonly dict: typeof zh; readonly ctx: ClientContext | undefined }): ReactElement {
   const sdict = dict.doctor
   const [doctorRun, setDoctorRun] = useState<DoctorRun | undefined>(undefined)
   const [doctorRunning, setDoctorRunning] = useState(false)
+  const [history, setHistory] = useState<readonly DoctorHistoryEntry[]>(() => loadDoctorHistory())
+  const lastRunAt = history[0]?.ranAt
   const onRun = (): void => {
     if (ctx === undefined || doctorRunning) return
     setDoctorRunning(true)
+    const started = Date.now()
     void runDoctor(ctx).then((result) => {
+      const duration = Date.now() - started
       setDoctorRun(result)
       setDoctorRunning(false)
+      const summary = summarize(result, duration)
+      setHistory((previous) => {
+        const next = [summary, ...previous].slice(0, DOCTOR_HISTORY_LIMIT)
+        persistDoctorHistory(next)
+        return next
+      })
     })
   }
   return createElement('div', {
@@ -361,6 +438,19 @@ function DoctorBlock({ dict, ctx }: { readonly dict: typeof zh; readonly ctx: Cl
         'data-dsh-plugin': 'ice-tools',
         'data-dsh-part': 'doctor-run',
       }, doctorRunning ? sdict.running : sdict.runButton),
+      doctorRun !== undefined
+        ? createElement('button', {
+          type: 'button',
+          style: { ...buttonStyle, padding: '4px 8px', fontSize: '12px' },
+          onClick: onRun,
+          disabled: doctorRunning || ctx === undefined,
+          'data-dsh-plugin': 'ice-tools',
+          'data-dsh-part': 'doctor-rerun',
+        }, sdict.rerun)
+        : null,
+      lastRunAt !== undefined
+        ? createElement('span', { style: { ...noteStyle, fontSize: '11px' } }, `${sdict.lastRun}: ${formatTimeAgo(lastRunAt)}`)
+        : null,
     ),
     doctorRun === undefined
       ? createElement('span', { style: noteStyle }, doctorRunning ? sdict.running : '')
@@ -385,7 +475,56 @@ function DoctorBlock({ dict, ctx }: { readonly dict: typeof zh; readonly ctx: Cl
           ),
         ),
       ),
+    history.length > 0
+      ? createElement('div', {
+        style: { display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '4px' },
+        'data-dsh-plugin': 'ice-tools',
+        'data-dsh-part': 'doctor-history',
+      },
+        createElement('span', { style: { ...noteStyle, fontWeight: 600 } }, sdict.historyTitle),
+        history.map((entry, index) =>
+          createElement('div', {
+            key: entry.ranAt,
+            style: {
+              display: 'grid',
+              gridTemplateColumns: 'auto 1fr auto auto',
+              gap: '8px',
+              fontSize: '11px',
+              padding: '4px 8px',
+              borderRadius: '6px',
+              background: 'var(--dsw-alias-bg-row, rgba(127,127,127,0.05))',
+            },
+            'data-dsh-history-index': index,
+          },
+            createElement('span', { style: { color: 'var(--dsw-alias-label-secondary, #666)' } }, formatTime(entry.ranAt)),
+            createElement('span', null, `${entry.pass} ${sdict.passed}, ${entry.fail} ${sdict.failed}`),
+            createElement('span', { style: { color: 'var(--dsw-alias-label-secondary, #666)' } }, `${entry.durationMs} ${sdict.ms}`),
+            createElement('span', { style: { color: 'var(--dsw-alias-label-secondary, #666)' } }, formatTimeAgo(entry.ranAt)),
+          ),
+        ),
+      )
+      : null,
   )
+}
+
+function formatTime(ranAt: number): string {
+  const date = new Date(ranAt)
+  const hh = String(date.getHours()).padStart(2, '0')
+  const mm = String(date.getMinutes()).padStart(2, '0')
+  const ss = String(date.getSeconds()).padStart(2, '0')
+  return `${hh}:${mm}:${ss}`
+}
+
+function formatTimeAgo(ranAt: number, now: number = Date.now()): string {
+  const diff = Math.max(0, now - ranAt)
+  const seconds = Math.floor(diff / 1000)
+  if (seconds < 60) return `${seconds}s ago`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  return `${days}d ago`
 }
 
 function SessionIdBlock({ dict, ctx }: { readonly dict: typeof zh; readonly ctx: ClientContext | undefined }): ReactElement {

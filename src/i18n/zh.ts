@@ -13,9 +13,15 @@ export interface DoctorEntry {
 export interface DoctorDictionary {
   readonly title: string
   readonly runButton: string
+  readonly rerun: string
   readonly running: string
   readonly pass: string
   readonly fail: string
+  readonly passed: string
+  readonly failed: string
+  readonly ms: string
+  readonly lastRun: string
+  readonly historyTitle: string
   readonly checks: {
     readonly connection: DoctorEntry
     readonly settingsDescribe: DoctorEntry
@@ -208,9 +214,15 @@ export const chatRecovery: ChatRecoveryDictionary = {
 export const doctor: DoctorDictionary = {
   title: '诊断',
   runButton: '运行诊断',
+  rerun: '重新运行',
   running: '运行中…',
   pass: '通过',
   fail: '失败',
+  passed: '通过',
+  failed: '失败',
+  ms: '毫秒',
+  lastRun: '上次运行',
+  historyTitle: '历史记录',
   checks: {
     connection: {
       label: '连接句柄',
