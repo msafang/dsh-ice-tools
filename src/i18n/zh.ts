@@ -149,12 +149,24 @@ export const pluginManager: PluginManagerDictionary = {
 
 export interface GitGraphDictionary {
   readonly title: string
-  readonly note: string
+  readonly hint: string
+  readonly placeholder: string
+  readonly empty: string
+  readonly commits: string
+  readonly merges: string
+  readonly branches: string
+  readonly other: string
 }
 
 export const gitGraph: GitGraphDictionary = {
   title: 'Git 图谱',
-  note: '需要 Host 提供 git 子进程服务才能渲染图谱。',
+  hint: '把 git log --graph --oneline 输出粘贴到下方以渲染',
+  placeholder: '把 git log --graph --oneline 输出粘贴到这里…',
+  empty: '暂无内容。',
+  commits: '提交',
+  merges: '合并',
+  branches: '分支',
+  other: '其它',
 }
 
 export interface TaskBoardDictionary {

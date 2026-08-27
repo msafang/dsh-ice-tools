@@ -167,7 +167,13 @@ export const en: {
   },
   gitGraph: {
     title: 'Git Graph',
-    note: 'A Host-side git subprocess service is required to render the graph.',
+    hint: 'Paste git log --graph --oneline output below to render',
+    placeholder: 'Paste git log --graph --oneline output here…',
+    empty: 'Nothing to render yet.',
+    commits: 'commits',
+    merges: 'merges',
+    branches: 'branches',
+    other: 'other',
   },
   taskBoard: {
     title: 'Task Board',

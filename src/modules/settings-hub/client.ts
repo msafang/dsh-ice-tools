@@ -7,7 +7,7 @@ import { KNOWN_SKILLS, mirrorToEntries, readSkillsMirror, type SkillEntry } from
 import { copyToClipboard, cancelSession, createSession, filterSessions, joinSessionIds, listSessions, renameSession, type SessionSummary } from '../session-id/client.ts'
 import { isLaunchableUrl, loadHistory, openOrCopyUrl, QUICK_PRESETS, recordHistory, removeHistory, type UrlScheme } from '../desktop-launcher/client.ts'
 import { parseCordisPatch } from '../plugin-manager/client.ts'
-import { readGitGraphState } from '../git-graph/client.ts'
+import { parseGitGraphOutput, summarizeGraph } from '../git-graph/client.ts'
 import { addTask, exportJson, exportMarkdown, filterTasks, isBlocked, isOverdue, isoOffsetDays, loadTasks, moveTask, removeTask, setDueDate, sortTasks, TASK_TEMPLATES, toggleTask, type StatusFilter, type Task, type TaskTemplate, type Priority } from '../task-board/client.ts'
 import { readChatRecoveryState } from '../chat-recovery/client.ts'
 import { en } from '../../i18n/en.ts'
@@ -1137,7 +1137,9 @@ function PluginManagerBlock({ dict }: { readonly dict: typeof zh }): ReactElemen
 
 function GitGraphBlock({ dict }: { readonly dict: typeof zh }): ReactElement {
   const sdict = dict.gitGraph
-  const state = readGitGraphState()
+  const [pasted, setPasted] = useState('')
+  const parsed = parseGitGraphOutput(pasted)
+  const summary = summarizeGraph(parsed)
   return createElement('div', {
     key: 'git-graph',
     style: { display: 'flex', flexDirection: 'column', gap: '8px', padding: '8px 0' },
@@ -1145,7 +1147,63 @@ function GitGraphBlock({ dict }: { readonly dict: typeof zh }): ReactElement {
     'data-dsh-part': 'git-graph',
   },
     createElement('span', { style: { fontWeight: 600 } }, sdict.title),
-    createElement('span', { style: noteStyle }, state.status === 'requires-host' ? sdict.note : ''),
+    createElement('span', { style: noteStyle }, sdict.hint),
+    createElement('textarea', {
+      value: pasted,
+      placeholder: sdict.placeholder,
+      style: {
+        ...inputStyle,
+        minHeight: '96px',
+        fontFamily: 'var(--dsw-alias-font-mono, ui-monospace, monospace)',
+        fontSize: '12px',
+      },
+      onChange: (e: { target: { value: string } }) => setPasted(e.target.value),
+      'data-dsh-plugin': 'ice-tools',
+      'data-dsh-part': 'git-graph-input',
+    }),
+    parsed.length === 0
+      ? createElement('span', { style: noteStyle }, sdict.empty)
+      : createElement('div', {
+        style: {
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '2px',
+          padding: '8px 10px',
+          borderRadius: '8px',
+          background: 'var(--dsw-alias-bg-row, rgba(127,127,127,0.05))',
+          fontFamily: 'var(--dsw-alias-font-mono, ui-monospace, monospace)',
+          fontSize: '12px',
+          maxHeight: '300px',
+          overflow: 'auto',
+        },
+        'data-dsh-plugin': 'ice-tools',
+        'data-dsh-part': 'git-graph-output',
+      },
+        createElement('span', { style: { ...noteStyle, marginBottom: '4px' } },
+          `${sdict.commits}: ${summary.commitCount} · ${sdict.merges}: ${summary.mergeCount} · ${sdict.branches}: ${summary.branchCount} · ${sdict.other}: ${summary.otherCount}`,
+        ),
+        parsed.map((line, idx) =>
+          createElement('div', {
+            key: idx,
+            style: {
+              display: 'flex',
+              gap: '8px',
+              paddingLeft: `${line.depth * 8}px`,
+              whiteSpace: 'pre',
+            },
+            'data-dsh-line-kind': line.kind,
+          },
+            createElement('span', {
+              style: {
+                color: line.kind === 'commit' ? 'var(--dsw-alias-success, #0a7d2c)'
+                  : line.kind === 'merge' ? 'var(--dsw-alias-warning, #a86b00)'
+                  : line.kind === 'branch' ? 'var(--dsw-alias-label-secondary, #666)'
+                  : 'inherit',
+              },
+            }, line.text),
+          ),
+        ),
+      ),
   )
 }
 
