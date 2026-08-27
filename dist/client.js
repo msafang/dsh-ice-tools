@@ -197,7 +197,28 @@ window.__ModuleLoader__.load({
 			},
 			chatRecovery: {
 				title: "Chat Recovery",
-				note: "A Host-side failure event stream is required to list recoverable sessions."
+				note: "Manually report failed sessions; the log lives in localStorage.",
+				idPlaceholder: "session id",
+				descriptionPlaceholder: "failure description…",
+				idLabel: "Session id",
+				descriptionLabel: "Failure description",
+				add: "Add",
+				added: "Added",
+				remove: "Remove",
+				copy: "Copy",
+				copied: "Copied",
+				cleared: "Cleared",
+				clearAll: "Clear all",
+				exportJson: "Export JSON",
+				imported: "Imported",
+				importInvalid: "Import failed: invalid JSON",
+				empty: "No recovery entries yet.",
+				openStatus: "Open",
+				recoveredStatus: "Recovered",
+				dismissedStatus: "Dismissed",
+				markRecovered: "Mark recovered",
+				markDismissed: "Mark dismissed",
+				markOpen: "Mark open"
 			},
 			pageHints: {
 				toggleGuidance: "Toggle a row above to enable its block below; untoggle to hide it.",
@@ -397,7 +418,28 @@ window.__ModuleLoader__.load({
 			},
 			chatRecovery: {
 				title: "对话恢复",
-				note: "需要 Host 提供失败会话事件流才能列出可恢复项。"
+				note: "手动报告失败的会话；恢复记录保存在本机 localStorage。",
+				idPlaceholder: "session id",
+				descriptionPlaceholder: "失败描述…",
+				idLabel: "会话 id",
+				descriptionLabel: "失败描述",
+				add: "添加",
+				added: "已添加",
+				remove: "删除",
+				copy: "复制",
+				copied: "已复制",
+				cleared: "已清空",
+				clearAll: "清空",
+				exportJson: "导出 JSON",
+				imported: "已导入",
+				importInvalid: "导入失败：JSON 不合法",
+				empty: "暂无恢复记录。",
+				openStatus: "未解决",
+				recoveredStatus: "已恢复",
+				dismissedStatus: "已关闭",
+				markRecovered: "标记已恢复",
+				markDismissed: "标记已关闭",
+				markOpen: "标记未解决"
 			},
 			pageHints: {
 				toggleGuidance: "勾选上面的选项即可启用对应工具；取消勾选则隐藏。",
@@ -1060,7 +1102,7 @@ window.__ModuleLoader__.load({
 			};
 			return await copy(trimmed);
 		}
-		function safeStorage$1() {
+		function safeStorage$2() {
 			if (typeof window === "undefined" || window.localStorage === void 0) return void 0;
 			return window.localStorage;
 		}
@@ -1070,7 +1112,7 @@ window.__ModuleLoader__.load({
 		* an empty-state hint without further guarding.
 		*/
 		function loadHistory() {
-			const store = safeStorage$1();
+			const store = safeStorage$2();
 			if (store === void 0) return [];
 			const raw = store.getItem(HISTORY_KEY);
 			if (raw === null) return [];
@@ -1097,7 +1139,7 @@ window.__ModuleLoader__.load({
 			}
 		}
 		function persistHistory(entries) {
-			const store = safeStorage$1();
+			const store = safeStorage$2();
 			if (store === void 0) return;
 			try {
 				store.setItem(HISTORY_KEY, JSON.stringify(entries));
@@ -1367,7 +1409,7 @@ window.__ModuleLoader__.load({
 			}
 		];
 		const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
-		function safeStorage() {
+		function safeStorage$1() {
 			const g = typeof globalThis !== "undefined" ? globalThis : void 0;
 			const store = g?.window?.localStorage ?? g?.localStorage;
 			if (store === void 0) return void 0;
@@ -1401,7 +1443,7 @@ window.__ModuleLoader__.load({
 			return false;
 		}
 		function loadTasks() {
-			const store = safeStorage();
+			const store = safeStorage$1();
 			if (store === void 0) return [];
 			const raw = store.getItem(TASK_STORAGE_KEY);
 			if (raw === null) return [];
@@ -1435,8 +1477,8 @@ window.__ModuleLoader__.load({
 				return [];
 			}
 		}
-		function persist(tasks) {
-			const store = safeStorage();
+		function persist$1(tasks) {
+			const store = safeStorage$1();
 			if (store === void 0) return;
 			try {
 				store.setItem(TASK_STORAGE_KEY, JSON.stringify(tasks));
@@ -1460,7 +1502,7 @@ window.__ModuleLoader__.load({
 				order: minOrder - 1,
 				...dueDate !== void 0 ? { dueDate } : {}
 			}, ...tasks];
-			persist(updated);
+			persist$1(updated);
 			return updated;
 		}
 		function toggleTask(tasks, id) {
@@ -1468,12 +1510,12 @@ window.__ModuleLoader__.load({
 				...task,
 				done: !task.done
 			} : task);
-			persist(updated);
+			persist$1(updated);
 			return updated;
 		}
 		function removeTask(tasks, id) {
 			const updated = tasks.filter((task) => task.id !== id);
-			persist(updated);
+			persist$1(updated);
 			return updated;
 		}
 		function setDueDate(tasks, id, dueDate) {
@@ -1485,7 +1527,7 @@ window.__ModuleLoader__.load({
 				...task,
 				dueDate
 			} : task);
-			persist(updated);
+			persist$1(updated);
 			return updated;
 		}
 		function moveTask(tasks, id, direction) {
@@ -1553,8 +1595,97 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region src/modules/chat-recovery/client.ts
-		function readChatRecoveryState() {
-			return { status: "requires-host" };
+		const RECOVERY_STORAGE_KEY = "dsh-ice-tools.recovery.v1";
+		function safeStorage() {
+			const g = typeof globalThis !== "undefined" ? globalThis : void 0;
+			return g?.window?.localStorage ?? g?.localStorage;
+		}
+		function parseEntry(value) {
+			if (typeof value !== "object" || value === null) return void 0;
+			const candidate = value;
+			if (typeof candidate.id !== "string") return void 0;
+			if (typeof candidate.description !== "string") return void 0;
+			if (typeof candidate.reportedAt !== "number") return void 0;
+			const status = candidate.status;
+			if (status !== "open" && status !== "recovered" && status !== "dismissed") return void 0;
+			return {
+				id: candidate.id,
+				description: candidate.description,
+				reportedAt: candidate.reportedAt,
+				status
+			};
+		}
+		function loadFailedSessions() {
+			const store = safeStorage();
+			if (store === void 0) return [];
+			const raw = store.getItem(RECOVERY_STORAGE_KEY);
+			if (raw === null) return [];
+			try {
+				const parsed = JSON.parse(raw);
+				if (!Array.isArray(parsed)) return [];
+				const entries = [];
+				for (const item of parsed) {
+					const entry = parseEntry(item);
+					if (entry !== void 0) entries.push(entry);
+				}
+				return entries;
+			} catch {
+				return [];
+			}
+		}
+		function persist(entries) {
+			const store = safeStorage();
+			if (store === void 0) return;
+			try {
+				store.setItem(RECOVERY_STORAGE_KEY, JSON.stringify(entries));
+			} catch {}
+		}
+		function addFailedSession(entries, id, description) {
+			const trimmedId = id.trim();
+			const trimmedDesc = description.trim();
+			if (trimmedId.length === 0 || trimmedDesc.length === 0) return entries;
+			const updated = [{
+				id: trimmedId,
+				description: trimmedDesc,
+				reportedAt: Date.now(),
+				status: "open"
+			}, ...entries.filter((entry) => entry.id !== trimmedId)];
+			persist(updated);
+			return updated;
+		}
+		function markFailedSession(entries, id, status) {
+			const updated = entries.map((entry) => entry.id === id ? {
+				...entry,
+				status
+			} : entry);
+			persist(updated);
+			return updated;
+		}
+		function removeFailedSession(entries, id) {
+			const updated = entries.filter((entry) => entry.id !== id);
+			persist(updated);
+			return updated;
+		}
+		function clearFailedSessions() {
+			persist([]);
+			return [];
+		}
+		function exportRecoveryJson(entries) {
+			return JSON.stringify(entries, null, 2);
+		}
+		/** Sort by status (open first), then by reportedAt descending. */
+		function sortFailedSessions(entries) {
+			const order = {
+				open: 0,
+				recovered: 1,
+				dismissed: 2
+			};
+			return entries.slice().sort((a, b) => {
+				const pa = order[a.status];
+				const pb = order[b.status];
+				if (pa !== pb) return pa - pb;
+				return b.reportedAt - a.reportedAt;
+			});
 		}
 		//#endregion
 		//#region src/modules/settings-hub/client.ts
@@ -2830,7 +2961,48 @@ window.__ModuleLoader__.load({
 		}
 		function ChatRecoveryBlock({ dict }) {
 			const sdict = dict.chatRecovery;
-			const state = readChatRecoveryState();
+			const [entries, setEntries] = (0, react.useState)(() => loadFailedSessions());
+			const [newId, setNewId] = (0, react.useState)("");
+			const [newDesc, setNewDesc] = (0, react.useState)("");
+			const [flash, setFlash] = (0, react.useState)(void 0);
+			const sorted = sortFailedSessions(entries);
+			const onAdd = () => {
+				setEntries(addFailedSession(entries, newId, newDesc));
+				setNewId("");
+				setNewDesc("");
+				setFlash(sdict.added);
+				if (typeof window !== "undefined") window.setTimeout(() => setFlash(void 0), 1500);
+			};
+			const onStatus = (id, status) => {
+				setEntries(markFailedSession(entries, id, status));
+			};
+			const onRemove = (id) => {
+				setEntries(removeFailedSession(entries, id));
+			};
+			const onCopy = (id) => {
+				copyToClipboard(id).then(() => {
+					setFlash(sdict.copied);
+					if (typeof window !== "undefined") window.setTimeout(() => setFlash(void 0), 1500);
+				});
+			};
+			const onClear = () => {
+				setEntries(clearFailedSessions());
+				setFlash(sdict.cleared);
+				if (typeof window !== "undefined") window.setTimeout(() => setFlash(void 0), 1500);
+			};
+			const onExport = () => {
+				const json = exportRecoveryJson(entries);
+				if (typeof window === "undefined") return;
+				const blob = new Blob([json], { type: "application/json" });
+				const url = URL.createObjectURL(blob);
+				const anchor = document.createElement("a");
+				anchor.href = url;
+				anchor.download = "dsh-ice-tools-recovery.json";
+				document.body.appendChild(anchor);
+				anchor.click();
+				document.body.removeChild(anchor);
+				URL.revokeObjectURL(url);
+			};
 			return (0, react.createElement)("div", {
 				key: "chat-recovery",
 				style: {
@@ -2841,7 +3013,135 @@ window.__ModuleLoader__.load({
 				},
 				"data-dsh-plugin": "ice-tools",
 				"data-dsh-part": "chat-recovery"
-			}, (0, react.createElement)("span", { style: { fontWeight: 600 } }, sdict.title), (0, react.createElement)("span", { style: noteStyle }, state.status === "requires-host" ? sdict.note : ""));
+			}, (0, react.createElement)("div", { style: {
+				display: "flex",
+				gap: "8px",
+				alignItems: "center"
+			} }, (0, react.createElement)("span", { style: { fontWeight: 600 } }, sdict.title), (0, react.createElement)("button", {
+				type: "button",
+				style: {
+					...buttonStyle,
+					padding: "2px 8px",
+					fontSize: "11px"
+				},
+				onClick: onClear,
+				disabled: entries.length === 0,
+				"data-dsh-plugin": "ice-tools",
+				"data-dsh-part": "recovery-clear"
+			}, sdict.clearAll), (0, react.createElement)("button", {
+				type: "button",
+				style: {
+					...buttonStyle,
+					padding: "2px 8px",
+					fontSize: "11px"
+				},
+				onClick: onExport,
+				disabled: entries.length === 0,
+				"data-dsh-plugin": "ice-tools",
+				"data-dsh-part": "recovery-export"
+			}, sdict.exportJson)), (0, react.createElement)("div", { style: {
+				display: "flex",
+				gap: "8px",
+				flexWrap: "wrap"
+			} }, (0, react.createElement)("input", {
+				type: "text",
+				value: newId,
+				placeholder: sdict.idPlaceholder,
+				style: {
+					...inputStyle,
+					flex: 1,
+					minWidth: "120px"
+				},
+				onChange: (e) => setNewId(e.target.value),
+				"aria-label": sdict.idLabel,
+				"data-dsh-plugin": "ice-tools",
+				"data-dsh-part": "recovery-id"
+			}), (0, react.createElement)("input", {
+				type: "text",
+				value: newDesc,
+				placeholder: sdict.descriptionPlaceholder,
+				style: {
+					...inputStyle,
+					flex: 2,
+					minWidth: "200px"
+				},
+				onChange: (e) => setNewDesc(e.target.value),
+				"aria-label": sdict.descriptionLabel,
+				"data-dsh-plugin": "ice-tools",
+				"data-dsh-part": "recovery-description"
+			}), (0, react.createElement)("button", {
+				type: "button",
+				style: buttonStyle,
+				onClick: onAdd,
+				disabled: newId.trim().length === 0 || newDesc.trim().length === 0,
+				"data-dsh-plugin": "ice-tools",
+				"data-dsh-part": "recovery-add"
+			}, sdict.add)), sorted.length === 0 ? (0, react.createElement)("span", { style: noteStyle }, sdict.empty) : (0, react.createElement)("div", {
+				style: {
+					display: "flex",
+					flexDirection: "column",
+					gap: "4px"
+				},
+				"data-dsh-plugin": "ice-tools",
+				"data-dsh-part": "recovery-list"
+			}, sorted.map((entry) => (0, react.createElement)("div", {
+				key: entry.id,
+				style: {
+					display: "grid",
+					gridTemplateColumns: "auto 1fr auto auto auto",
+					gap: "8px",
+					alignItems: "center",
+					padding: "6px 10px",
+					borderRadius: "6px",
+					background: entry.status === "open" ? "rgba(180, 35, 24, 0.08)" : "var(--dsw-alias-bg-row, rgba(127,127,127,0.05))"
+				},
+				"data-dsh-recovery-id": entry.id,
+				"data-dsh-recovery-status": entry.status
+			}, (0, react.createElement)("span", { style: {
+				fontSize: "11px",
+				fontWeight: 600,
+				padding: "2px 6px",
+				borderRadius: "4px",
+				color: entry.status === "open" ? "var(--dsw-alias-danger, #b42318)" : entry.status === "recovered" ? "var(--dsw-alias-success, #0a7d2c)" : "var(--dsw-alias-label-secondary, #666)",
+				background: entry.status === "open" ? "rgba(180, 35, 24, 0.15)" : entry.status === "recovered" ? "rgba(10, 125, 44, 0.15)" : "rgba(127,127,127,0.15)"
+			} }, entry.status === "open" ? sdict.openStatus : entry.status === "recovered" ? sdict.recoveredStatus : sdict.dismissedStatus), (0, react.createElement)("div", { style: {
+				display: "flex",
+				flexDirection: "column",
+				gap: "2px"
+			} }, (0, react.createElement)("code", { style: {
+				fontSize: "12px",
+				fontFamily: "var(--dsw-alias-font-mono, ui-monospace, monospace)"
+			} }, entry.id), (0, react.createElement)("span", { style: {
+				fontSize: "11px",
+				color: "var(--dsw-alias-label-secondary, #666)"
+			} }, entry.description)), (0, react.createElement)("button", {
+				type: "button",
+				style: {
+					...buttonStyle,
+					padding: "2px 6px",
+					fontSize: "11px"
+				},
+				onClick: () => onCopy(entry.id)
+			}, sdict.copy), (0, react.createElement)("button", {
+				type: "button",
+				style: {
+					...buttonStyle,
+					padding: "2px 6px",
+					fontSize: "11px"
+				},
+				onClick: () => onStatus(entry.id, entry.status === "open" ? "recovered" : entry.status === "recovered" ? "dismissed" : "open")
+			}, entry.status === "open" ? sdict.markRecovered : entry.status === "recovered" ? sdict.markDismissed : sdict.markOpen), (0, react.createElement)("button", {
+				type: "button",
+				style: {
+					...buttonStyle,
+					padding: "2px 6px",
+					fontSize: "11px"
+				},
+				onClick: () => onRemove(entry.id)
+			}, sdict.remove)))), flash ? (0, react.createElement)("span", { style: {
+				...noteStyle,
+				color: "var(--dsw-alias-success, #0a7d2c)"
+			} }, flash) : null);
 		}
 		const PATCH_PATH = "~/.dsh/profiles/web/cordis.patch.yml";
 		const CORDIS_PATCH_SOURCE = `- insert:
