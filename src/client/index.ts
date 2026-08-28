@@ -1,26 +1,17 @@
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type { Disposer } from '../core/dsh-adapter/index.ts'
+import { readOptionalClient, type LocaleRegister } from '../core/dsh-adapter/index.ts'
 import { en } from '../i18n/en.ts'
 import { zh } from '../i18n/zh.ts'
 import { mount as mountSettingsHub } from '../modules/settings-hub/client.ts'
 
 export const inject = ['slots', 'locale', 'settingsScope', 'connection'] as const
 
-/**
- * Minimal, untyped `locale.register` shape so the client bundle stays free of
- * `@deepseek-ai/*` runtime imports. The LocaleRuntime defined in
- * `@deepseek-ai/dsh-client-locale/client` exposes the typed `register`; the
- * runtime contract is `register(namespace, { zh, en }) -> disposer`.
- */
-interface LocaleRegister {
-  register(namespace: string, dictionaries: { readonly zh: unknown; readonly en: unknown }): () => void
-}
-
 export function apply(ctx: ClientContext): void {
   // Register the bilingual dictionaries once. The disposer is owned by
   // ctx.effect, so it fires when the client fiber disposes.
   ctx.effect(() => {
-    const locale = (ctx as unknown as { locale?: LocaleRegister }).locale
+    const locale = readOptionalClient<LocaleRegister>(ctx, 'locale')
     const disposer = locale?.register('ice-tools', { zh, en })
     return typeof disposer === 'function' ? disposer : undefined
   }, 'dsh-ice-tools client locale register')

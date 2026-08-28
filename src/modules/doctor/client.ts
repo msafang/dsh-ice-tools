@@ -55,9 +55,7 @@ interface ConnectionLike {
   }
 }
 
-interface LocaleRuntimeLike {
-  getSnapshot(): { readonly active: string; readonly revision: number }
-}
+import type { LocaleRuntimeLike } from '../../core/dsh-adapter/index.ts'
 
 interface DescribeView {
   writable?: boolean

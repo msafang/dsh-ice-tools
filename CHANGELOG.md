@@ -7,11 +7,23 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
-- **Tests**: a vitest suite covers every client-only surface (89 tests across
-  dispatch, pluginManager, sessionId, desktopLauncher, taskBoard, and
-  doctor). Smoke contracts for settingsHub and locale parity still ride
-  alongside. The new tests pinned several behaviours the next refactor
-  would otherwise have regressed silently.
+- **Doctor block**: rerun button, last-run timestamp, five-entry run history
+  persisted to localStorage so a flaky environment shows up as a streak of
+  failed rows instead of a one-shot blip.
+- **Skill Explorer**: live mirror of `~/.dsh/skills/` registered through
+  the read-only `ice-tools-skills` namespace on the settings provider. The
+  client falls back to the static catalogue when the host does not
+  populate the mirror.
+- **Git Graph**: paste renderer for `git log --graph --oneline` output.
+  The block owns the parser, the coloured grid, and the summary line; no
+  host subprocess is required.
+- **Chat Recovery**: manual failure log with status pills (open /
+  recovered / dismissed), per-row status toggle, copy-to-clipboard,
+  JSON export / import, and localStorage persistence. The manual entry
+  point keeps the block useful until the Host failure event stream is
+  available.
+- **Settings surface**: search box over the toggle list (rows fade rather
+  than hide) and per-block collapse toggles.
 
 ### Changed
 - **`normalizeEnabled`** now starts from an all-off section and opts-in
@@ -31,6 +43,10 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
   `globalThis.localStorage`, so test runners can inject a polyfill
   without monkey-patching the global. Production callers see no
   change.
+- **Bundle**: `minify: true` and `sourcemap: false` on both halves, and
+  `package.json#files` now lists `dist/client.js` and `dist/index.js`
+  explicitly so the npm tarball stays small (client drops from 108.43
+  kB to 61.53 kB; gzip 24.51 kB to 16.51 kB).
 
 ### Fixed
 - **`parseCordisPatch`** did not recognise source files that begin

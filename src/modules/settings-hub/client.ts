@@ -1,6 +1,7 @@
-import { createElement, useEffect, useState, type CSSProperties, type ReactElement } from 'react'
+import { createElement, lazy, Suspense, useEffect, useState, type CSSProperties, type ReactElement } from 'react'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
-import type { Disposer, ReactElementLike, SettingsScope } from '../../core/dsh-adapter/index.ts'
+import type { Disposer, LocaleRuntimeLike, ReactElementLike, SettingsScope } from '../../core/dsh-adapter/index.ts'
+import { readOptionalClient } from '../../core/dsh-adapter/index.ts'
 import { DEFAULT_ENABLED, MODULE_NAMES, normalizeEnabled, type EnabledModules, type IceConfig, type ModuleName } from '../../core/dispatch/index.ts'
 import { runDoctor, type DoctorRun } from '../doctor/client.ts'
 import { KNOWN_SKILLS, mirrorToEntries, readSkillsMirror, type SkillEntry } from '../skill-explorer/client.ts'
@@ -66,10 +67,6 @@ interface SettingsScopeLike {
 }
 
 /** Minimal LocaleRuntime face consumed by the section component. */
-interface LocaleRuntimeLike {
-  getSnapshot(): { readonly active: string; readonly revision: number }
-  subscribe(listener: () => void): () => void
-}
 
 function dictFor(active: string): typeof zh {
   return active === 'zh' ? zh : en
@@ -816,12 +813,64 @@ function SessionIdBlock({ dict, ctx }: { readonly dict: typeof zh; readonly ctx:
   )
 }
 
+function skillExplorerBlockFallback(sdict: typeof zh.skillExplorer): ReactElement {
+  return createElement('div', {
+    key: 'skill-explorer',
+    style: { display: 'flex', flexDirection: 'column', gap: '8px', padding: '8px 0' },
+    'data-dsh-plugin': 'ice-tools',
+    'data-dsh-part': 'skill-explorer',
+  },
+    createElement('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } },
+      createElement('span', { style: { fontWeight: 600 } }, sdict.title),
+      createElement('span', {
+        style: { ...noteStyle, fontSize: '11px' },
+        'data-dsh-plugin': 'ice-tools',
+        'data-dsh-part': 'skill-source',
+      }, sdict.staticFallback),
+    ),
+    KNOWN_SKILLS.length === 0
+      ? createElement('span', { style: noteStyle }, sdict.empty)
+      : createElement('div', {
+        style: { display: 'flex', flexDirection: 'column', gap: '4px' },
+        'data-dsh-plugin': 'ice-tools',
+        'data-dsh-part': 'skill-list',
+      },
+        KNOWN_SKILLS.map((entry: SkillEntry) =>
+          createElement('div', {
+            key: entry.name,
+            style: {
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '2px',
+              padding: '6px 10px',
+              borderRadius: '8px',
+              background: 'var(--dsw-alias-bg-row, rgba(127,127,127,0.05))',
+            },
+            'data-dsh-skill': entry.name,
+          },
+            createElement('span', { style: { fontSize: '13px', fontWeight: 500 } }, entry.name),
+            createElement('span', { style: noteStyle }, entry.description),
+            createElement('span', { style: { ...noteStyle, fontFamily: 'var(--dsw-alias-font-mono, ui-monospace, monospace)' } }, `${sdict.location}: ${entry.location}`),
+          ),
+        ),
+      ),
+  )
+}
+
 function SkillExplorerBlock({ dict, ctx }: { readonly dict: typeof zh; readonly ctx: ClientContext | undefined }): ReactElement {
   const sdict = dict.skillExplorer
   // Inline the mirror scope shape so the component does not depend on the
   // wider `SettingsScopeLike` boundary type. The settingsScope service is
   // registered by dsh-client-ui-settings on the client runtime.
-  const skillScope = (ctx as unknown as { settingsScope: { bind<T>(spec: { namespace: string; decode(s: unknown): T | undefined }): { getSnapshot(): { value: T | undefined }; subscribe(listener: () => void): () => void } } }).settingsScope
+  const skillScope = readOptionalClient<{
+    bind<T>(spec: { namespace: string; decode(s: unknown): T | undefined }): { getSnapshot(): { value: T | undefined }; subscribe(listener: () => void): () => void }
+  }>(ctx, 'settingsScope')
+  if (skillScope === undefined) {
+    // The host runtime did not register the settingsScope service (older DSH
+    // build or a fibre that runs outside the settings surface). Fall back to
+    // the static catalogue so the block still renders.
+    return skillExplorerBlockFallback(sdict)
+  }
   const bound = skillScope.bind({
     namespace: 'ice-tools-skills',
     decode: (section: unknown) => {
@@ -1046,7 +1095,7 @@ function localeForPreset(): 'en' | 'zh' {
 
 function activeLocale(ctx: ClientContext | undefined): 'en' | 'zh' {
   if (ctx === undefined) return localeForPreset()
-  const runtime = (ctx as unknown as { locale?: { getSnapshot(): { active: string } } }).locale
+  const runtime = readOptionalClient<{ getSnapshot(): { active: string } }>(ctx, 'locale')
   if (runtime === undefined) return localeForPreset()
   try {
     const active = runtime.getSnapshot().active
