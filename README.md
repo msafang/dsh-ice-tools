@@ -61,9 +61,9 @@ on its own.
 | skillExplorer | optional | Renders a local catalogue of known skills |
 | desktopLauncher | optional | URL input + clipboard handoff to the system browser |
 | pluginManager | optional | Parses the profile patch and shows installed rows |
-| gitGraph | optional | Placeholder; awaits a Host git subprocess service |
+| gitGraph | optional | Renders pasted `git log --graph --oneline` output |
 | taskBoard | optional | Client-side task list backed by localStorage |
-| chatRecovery | optional | Placeholder; awaits a Host failure event stream |
+| chatRecovery | optional | Manual failure log with status pills and JSON export / import |
 
 The toggle gate is unified: every toggle lives in the `ice-tools` settings
 namespace and is read through a single settings scope. A change to a
@@ -84,10 +84,13 @@ The ICE Tools page also renders blocks that do not take a module toggle:
   system browser.
 - **Plugin Manager** — Reads `cordis.patch.yml` and renders the
   `insert:` rows.
-- **Git Graph** — Notes the missing Host hook.
+- **Git Graph** — Paste `git log --graph --oneline` output and the block
+  renders the grid in place with kind colors and a summary line.
 - **Task Board** — Add / toggle / remove tasks, persisted to
   `localStorage` under the key `dsh-ice-tools.tasks.v1`.
-- **Chat Recovery** — Notes the missing Host hook.
+- **Chat Recovery** — Manually report failed sessions with a status pill
+  (open / recovered / dismissed), copy-to-clipboard, JSON export / import,
+  and localStorage persistence.
 
 ## Changelog
 

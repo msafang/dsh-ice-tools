@@ -53,9 +53,9 @@ Git commit。
 | 技能浏览器 (skillExplorer) | 可选 | 渲染本插件已知的技能列表 |
 | 桌面启动器 (desktopLauncher) | 可选 | URL 输入 + Open 按钮，把 URL 写入剪贴板交给系统浏览器 |
 | 插件管理 (pluginManager) | 可选 | 解析 profile patch，展示已装行 |
-| Git 图谱 (gitGraph) | 可选 | 占位，等待 Host 提供 git 子进程服务 |
+| Git 图谱 (gitGraph) | 可选 | 粘贴 `git log --graph --oneline` 输出在块里渲染 |
 | 任务看板 (taskBoard) | 可选 | 客户端任务列表，持久化到 localStorage |
-| 对话恢复 (chatRecovery) | 可选 | 占位，等待 Host 提供失败事件流 |
+| 对话恢复 (chatRecovery) | 可选 | 手动记录失败会话（状态胶囊、JSON 导出/导入、localStorage 持久化） |
 
 开关统一在 `ice-tools` 设置 namespace 下，通过单一 settings scope
 读取。toggle 切换会持久化，并在下次 dispatch tick 生效，不需要重启
@@ -65,18 +65,22 @@ DSH。
 
 ICE 工具页面还渲染不绑定开关的区块：
 
-- **诊断工具** — 「运行诊断」跑七项检查，探测实时 settings transport、
-  locale runtime 与解析后的 `ice-tools` section。
+- **诊断工具** — 「运行诊断」跑十三项检查，探测实时 settings transport、
+  locale runtime、bundle 指纹、双语字典覆盖、模块加载器、剪贴板 API、
+  localStorage 与 fetch + AbortController。
 - **会话 ID** — 「刷新」拉取会话目录，每个会话渲染一行，附带复制按钮，
   把 id 写入剪贴板。
-- **技能浏览器** — 本地已知的技能目录。
+- **技能浏览器** — 通过只读 `ice-tools-skills` namespace 镜像本机
+  `~/.dsh/skills/` 目录，每条 skill 读取 `SKILL.md` 第一段作为描述。
 - **桌面启动器** — URL 输入 + Open 按钮；Open 校验 scheme 后把 URL
   复制到剪贴板，由用户在系统浏览器中打开。
 - **插件管理** — 读取 `cordis.patch.yml` 并展示 `insert:` 行。
-- **Git 图谱** — 标注缺失的 Host hook。
+- **Git 图谱** — 粘贴 `git log --graph --oneline` 输出，渲染成按 kind
+  着色的网格 + 顶部统计行。
 - **任务看板** — 增/勾/删任务，持久化到 localStorage，键名
   `dsh-ice-tools.tasks.v1`。
-- **对话恢复** — 标注缺失的 Host hook。
+- **对话恢复** — 手动记录失败会话：状态胶囊（未解决 / 已恢复 / 已关闭）、
+  复制按钮、JSON 导出 / 导入，持久化到 localStorage。
 
 ## 许可证
 
