@@ -32,7 +32,8 @@
     "test": "vitest run"
   },
   "files": [
-    "dist",
+    "dist/client.js",
+    "dist/index.js",
     "cordis.patch.yml",
     "README.md",
     "README.zh.md",
